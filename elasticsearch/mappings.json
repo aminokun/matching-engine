@@ -1,0 +1,144 @@
+{
+  "index_patterns": ["company-profiles*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "analysis": {
+        "analyzer": {
+          "company_analyzer": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "asciifolding", "word_delimiter"]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "properties": {
+        "profileId": {
+          "type": "keyword"
+        },
+        "ingestionDate": {
+          "type": "date"
+        },
+        "source": {
+          "type": "keyword"
+        },
+        "companyDetails": {
+          "properties": {
+            "companyName": {
+              "type": "text",
+              "analyzer": "company_analyzer",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "country": {
+              "type": "keyword"
+            },
+            "city": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "summaryOfActivity": {
+              "type": "text",
+              "analyzer": "company_analyzer"
+            },
+            "dateEstablished": {
+              "type": "date"
+            },
+            "numberOfEmployees": {
+              "type": "integer"
+            },
+            "annualTurnover": {
+              "type": "long"
+            },
+            "website": {
+              "type": "keyword"
+            },
+            "linkedinPage": {
+              "type": "keyword"
+            },
+            "telephone": {
+              "type": "keyword"
+            },
+            "generalEmail": {
+              "type": "keyword"
+            }
+          }
+        },
+        "classification": {
+          "properties": {
+            "profileType": {
+              "type": "keyword"
+            },
+            "marketSegment": {
+              "type": "keyword"
+            },
+            "keywords": {
+              "type": "text",
+              "analyzer": "company_analyzer",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "servicesOffered": {
+              "type": "keyword"
+            },
+            "clientTypesServed": {
+              "type": "keyword"
+            }
+          }
+        },
+        "primaryContact": {
+          "properties": {
+            "firstName": {
+              "type": "text"
+            },
+            "lastName": {
+              "type": "text"
+            },
+            "jobTitle": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "gender": {
+              "type": "keyword"
+            },
+            "email": {
+              "type": "keyword"
+            },
+            "telephone": {
+              "type": "keyword"
+            },
+            "linkedinPage": {
+              "type": "keyword"
+            },
+            "type": {
+              "type": "keyword"
+            }
+          }
+        },
+        "semanticEmbedding": {
+          "type": "dense_vector",
+          "dims": 384,
+          "index": true,
+          "similarity": "cosine"
+        }
+      }
+    }
+  }
+}

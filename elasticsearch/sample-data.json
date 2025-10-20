@@ -1,0 +1,177 @@
+[
+  {
+    "profileId": "PROF-UK-83619",
+    "ingestionDate": "2025-09-29T10:15:00Z",
+    "source": "WebScraper_V2.1",
+    "companyDetails": {
+      "companyName": "Starlight Solutions Ltd.",
+      "country": "United Kingdom",
+      "city": "Manchester",
+      "summaryOfActivity": "A leading UK distributor of professional lighting and audio equipment for the event industry. Multi-brand B2B online shop.",
+      "dateEstablished": "2010-05-12",
+      "numberOfEmployees": 125,
+      "annualTurnover": 25500000,
+      "website": "https://www.starlightsolutions.co.uk",
+      "linkedinPage": "https://www.linkedin.com/company/starlight-solutions-ltd",
+      "telephone": "+44 161 456 7890",
+      "generalEmail": "sales@starlightsolutions.co.uk"
+    },
+    "classification": {
+      "profileType": "Wholesaler",
+      "marketSegment": "mid-market",
+      "keywords": ["AV distribution", "pro lighting wholesale", "sound equipment", "B2B sales"],
+      "servicesOffered": ["Product Distribution", "Technical Support", "Bulk Pricing", "Financing"],
+      "clientTypesServed": ["Rental Companies", "Installers", "Theatres", "Retailers"]
+    },
+    "primaryContact": {
+      "firstName": "Arthur",
+      "lastName": "Pendleton",
+      "jobTitle": "Head of Procurement",
+      "gender": "Male",
+      "email": "a.pendleton@starlightsolutions.co.uk",
+      "telephone": "+44 161 456 7891",
+      "linkedinPage": "https://www.linkedin.com/in/arthurpendleton",
+      "type": "decision maker"
+    }
+  },
+  {
+    "profileId": "PROF-DE-45201",
+    "ingestionDate": "2025-09-28T14:20:00Z",
+    "source": "WebScraper_V2.1",
+    "companyDetails": {
+      "companyName": "TechVision Distribution GmbH",
+      "country": "Germany",
+      "city": "Berlin",
+      "summaryOfActivity": "Major distributor of professional audio-visual equipment, lighting solutions, and event technology across Central Europe.",
+      "dateEstablished": "2005-03-15",
+      "numberOfEmployees": 250,
+      "annualTurnover": 45000000,
+      "website": "https://www.techvision-dist.de",
+      "linkedinPage": "https://www.linkedin.com/company/techvision-distribution",
+      "telephone": "+49 30 1234 5678",
+      "generalEmail": "info@techvision-dist.de"
+    },
+    "classification": {
+      "profileType": "Distributor",
+      "marketSegment": "enterprise",
+      "keywords": ["AV equipment", "event technology", "professional lighting", "distribution network"],
+      "servicesOffered": ["Product Distribution", "Technical Support", "Installation Services", "Training"],
+      "clientTypesServed": ["Event Companies", "Venues", "Installers", "Rental Companies"]
+    },
+    "primaryContact": {
+      "firstName": "Klaus",
+      "lastName": "Müller",
+      "jobTitle": "Sales Director",
+      "gender": "Male",
+      "email": "k.mueller@techvision-dist.de",
+      "telephone": "+49 30 1234 5679",
+      "linkedinPage": "https://www.linkedin.com/in/klausmueller",
+      "type": "decision maker"
+    }
+  },
+  {
+    "profileId": "PROF-NL-92847",
+    "ingestionDate": "2025-09-27T09:30:00Z",
+    "source": "WebScraper_V2.1",
+    "companyDetails": {
+      "companyName": "AudioPro Netherlands B.V.",
+      "country": "Netherlands",
+      "city": "Amsterdam",
+      "summaryOfActivity": "Specialized distributor of professional audio equipment and sound systems for live events, installations, and broadcast.",
+      "dateEstablished": "2012-08-20",
+      "numberOfEmployees": 85,
+      "annualTurnover": 18000000,
+      "website": "https://www.audiopro.nl",
+      "linkedinPage": "https://www.linkedin.com/company/audiopro-netherlands",
+      "telephone": "+31 20 123 4567",
+      "generalEmail": "sales@audiopro.nl"
+    },
+    "classification": {
+      "profileType": "Distributor",
+      "marketSegment": "mid-market",
+      "keywords": ["professional audio", "sound systems", "live events", "broadcast equipment"],
+      "servicesOffered": ["Product Distribution", "Technical Support", "Repair Services", "Custom Solutions"],
+      "clientTypesServed": ["Event Companies", "Broadcast Stations", "Installers", "Theatres"]
+    },
+    "primaryContact": {
+      "firstName": "Sophie",
+      "lastName": "van der Berg",
+      "jobTitle": "Business Development Manager",
+      "gender": "Female",
+      "email": "s.vanderberg@audiopro.nl",
+      "telephone": "+31 20 123 4568",
+      "linkedinPage": "https://www.linkedin.com/in/sophievanderberg",
+      "type": "decision maker"
+    }
+  },
+  {
+    "profileId": "PROF-FR-67432",
+    "ingestionDate": "2025-09-26T11:45:00Z",
+    "source": "WebScraper_V2.1",
+    "companyDetails": {
+      "companyName": "LumiTech France S.A.",
+      "country": "France",
+      "city": "Paris",
+      "summaryOfActivity": "Leading manufacturer of professional LED lighting solutions and control systems for entertainment and architectural applications.",
+      "dateEstablished": "1998-01-10",
+      "numberOfEmployees": 320,
+      "annualTurnover": 62000000,
+      "website": "https://www.lumitech.fr",
+      "linkedinPage": "https://www.linkedin.com/company/lumitech-france",
+      "telephone": "+33 1 4567 8900",
+      "generalEmail": "contact@lumitech.fr"
+    },
+    "classification": {
+      "profileType": "Manufacturer",
+      "marketSegment": "enterprise",
+      "keywords": ["LED lighting", "lighting control", "architectural lighting", "entertainment lighting"],
+      "servicesOffered": ["Manufacturing", "R&D", "Technical Support", "Custom Design"],
+      "clientTypesServed": ["Distributors", "Installers", "Event Companies", "Architects"]
+    },
+    "primaryContact": {
+      "firstName": "Marie",
+      "lastName": "Dubois",
+      "jobTitle": "International Sales Manager",
+      "gender": "Female",
+      "email": "m.dubois@lumitech.fr",
+      "telephone": "+33 1 4567 8901",
+      "linkedinPage": "https://www.linkedin.com/in/mariedubois",
+      "type": "decision maker"
+    }
+  },
+  {
+    "profileId": "PROF-ES-31256",
+    "ingestionDate": "2025-09-25T16:10:00Z",
+    "source": "WebScraper_V2.1",
+    "companyDetails": {
+      "companyName": "SoundWave Iberia S.L.",
+      "country": "Spain",
+      "city": "Barcelona",
+      "summaryOfActivity": "Regional distributor specializing in professional audio equipment, DJ gear, and live sound reinforcement systems.",
+      "dateEstablished": "2015-06-01",
+      "numberOfEmployees": 45,
+      "annualTurnover": 9500000,
+      "website": "https://www.soundwave-iberia.es",
+      "linkedinPage": "https://www.linkedin.com/company/soundwave-iberia",
+      "telephone": "+34 93 456 7890",
+      "generalEmail": "ventas@soundwave-iberia.es"
+    },
+    "classification": {
+      "profileType": "Distributor",
+      "marketSegment": "small-business",
+      "keywords": ["pro audio", "DJ equipment", "live sound", "regional distribution"],
+      "servicesOffered": ["Product Distribution", "Demo Equipment", "Technical Support"],
+      "clientTypesServed": ["DJ Shops", "Event Companies", "Small Venues", "Retailers"]
+    },
+    "primaryContact": {
+      "firstName": "Carlos",
+      "lastName": "García",
+      "jobTitle": "Owner & Managing Director",
+      "gender": "Male",
+      "email": "c.garcia@soundwave-iberia.es",
+      "telephone": "+34 93 456 7891",
+      "linkedinPage": "https://www.linkedin.com/in/carlosgarcia",
+      "type": "decision maker"
+    }
+  }
+]
