@@ -1,8 +1,9 @@
-import { FastifyPluginAsync } from 'fastify';
+import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import claudeService from '../services/claude.service';
 import embeddingService from '../services/embedding.service';
 import searchService from '../services/search.service';
+import elasticsearchService from '../services/elasticsearch.service';
 
 // Request schema
 const SearchRequestSchema = z.object({
@@ -126,6 +127,48 @@ const searchRoute: FastifyPluginAsync = async (fastify) => {
       return reply.code(500).send({
         error: 'Failed to fetch profile',
         message: error.message,
+      });
+    }
+  });
+
+  fastify.get<{ Querystring: { limit?: string } }>('/entities', async (request: FastifyRequest<{ Querystring: { limit?: string } }>, reply: FastifyReply) => {
+    try {
+      const limit = Math.min(parseInt(request.query.limit || '100'), 1000);
+      const entities = await elasticsearchService.getAllEntities(limit);
+
+      return {
+        total: await elasticsearchService.getEntityCount(),
+        count: entities.length,
+        entities: entities.map((entity: any) => ({
+          profileId: entity.profileId,
+          companyName: entity.companyDetails.companyName,
+          country: entity.companyDetails.country,
+          city: entity.companyDetails.city,
+          profileType: entity.classification.profileType,
+          marketSegment: entity.classification.marketSegment,
+          numberOfEmployees: entity.companyDetails.numberOfEmployees,
+          annualTurnover: entity.companyDetails.annualTurnover,
+        })),
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        error: error instanceof Error ? error.message : 'Failed to fetch entities',
+      });
+    }
+  });
+
+  // Get available parameters for matching
+  fastify.get('/parameters', async (request, reply) => {
+    try {
+      const parameters = elasticsearchService.getAvailableParameters();
+      return {
+        parameters,
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        error: error instanceof Error ? error.message : 'Failed to fetch parameters',
       });
     }
   });

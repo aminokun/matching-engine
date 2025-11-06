@@ -4,11 +4,12 @@
 import { useState } from 'react';
 import FilterPanel from '@/components/FilterPanel';
 import BackendResponse from '@/components/BackendResponse';
+import { BackendResponse as BackendResponseType } from '@/types';
 
 export default function Home() {
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string[]>>({});
   const [extraRequirements, setExtraRequirements] = useState('');
-  const [backendResponse, setBackendResponse] = useState<any>(null);
+  const [backendResponse, setBackendResponse] = useState<BackendResponseType | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +25,7 @@ export default function Home() {
 
     try {
       // Transform flat filter structure into the format expected by the backend
-      const filters: any = {};
+      const filters: Record<string, string | string[] | Record<string, string | string[]>> = {};
       Object.entries(selectedFilters).forEach(([key, values]) => {
         if (values.length > 0) {
           if (key === 'country') {
@@ -33,7 +34,7 @@ export default function Home() {
             // Handle nested keys like business_model.online_shop
             const [parent, child] = key.split('.');
             if (!filters[parent]) filters[parent] = {};
-            filters[parent][child] = values;
+            (filters[parent] as Record<string, string | string[]>)[child] = values;
           } else {
             filters[key] = values;
           }
@@ -178,7 +179,7 @@ export default function Home() {
                   </svg>
                   <h3 className="mt-2 text-sm font-medium text-gray-900">No search performed yet</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Enter your requirements and click "Find Companies" to see results
+                    Enter your requirements and click &quot;Find Companies&quot; to see results
                   </p>
                 </div>
               )}
