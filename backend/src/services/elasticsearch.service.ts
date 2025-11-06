@@ -11,7 +11,6 @@ const client = new Client({
     // Only use the configured node
     return true;
   },
-  enableDebugLogger: false,
   requestTimeout: 10000,
 });
 
@@ -205,7 +204,10 @@ class ElasticsearchService {
       }
       if (should.length > 0) {
         query.bool.should = should;
-        query.bool.minimum_should_match = 1;
+        // If no must clauses, require at least one should clause to match
+        if (must.length === 0) {
+          query.bool.minimum_should_match = 1;
+        }
       }
 
       // If no criteria, match all

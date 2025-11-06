@@ -2,7 +2,9 @@ import elasticsearchService, { CompanyEntity } from './elasticsearch.service';
 
 export interface MatchWeight {
   parameterName: string;
-  weight: number; // 0-100, must sum to 100 across all parameters
+  weight: number; // Priority value 1-5, higher = more important
+  value?: string; // The actual value to match (for Notion parameters)
+  type?: string; // 'notion' or undefined for elasticsearch parameters
 }
 
 export interface ParameterMatchResult {
@@ -118,7 +120,7 @@ export interface SearchCriteria {
 
 export interface SearchMatchRequest {
   idealProfile: SearchCriteria;
-  weights: MatchWeight[];
+  weights: MatchWeight[]; // Priority-based weights (1-5 scale)
   minThreshold?: number; // 0-100, default 0
 }
 
@@ -143,12 +145,6 @@ class MatchingService {
   async searchAndRankMatches(
     request: SearchMatchRequest
   ): Promise<SearchMatchesResponse> {
-    // Validate weights
-    const totalWeight = request.weights.reduce((sum, w) => sum + w.weight, 0);
-    if (Math.abs(totalWeight - 100) > 0.01) {
-      throw new Error(`Weights must sum to 100, got ${totalWeight}`);
-    }
-
     const threshold = request.minThreshold || 0;
 
     try {
@@ -171,21 +167,35 @@ class MatchingService {
 
           // Calculate match for each weighted parameter
           for (const weight of activeWeights) {
-            const param = parameters.find((p) => p.name === weight.parameterName);
-            if (!param) continue;
+            // Check if this is a Notion parameter (has value metadata)
+            if (weight.type === 'notion' && weight.value) {
+              const match = this.matchNotionParameter(candidate, weight.parameterName, weight.value);
+              parameterMatches.push(match);
+            } else {
+              // Standard elasticsearch parameter
+              const param = parameters.find((p) => p.name === weight.parameterName);
+              if (!param) continue;
 
-            const match = this.matchParameter(idealEntity, candidate, weight.parameterName, param);
-            parameterMatches.push(match);
+              const match = this.matchParameter(idealEntity, candidate, weight.parameterName, param);
+              parameterMatches.push(match);
+            }
           }
 
-          // Calculate weighted total
-          let totalMatchPercentage = 0;
+          // Calculate priority-weighted total
+          let totalWeightedScore = 0;
+          let totalPriority = 0;
+
           for (const match of parameterMatches) {
             const weight = activeWeights.find((w) => w.parameterName === match.parameterName);
             if (weight) {
-              totalMatchPercentage += (match.matchPercentage * weight.weight) / 100;
+              // Multiply match percentage by priority value, then sum
+              totalWeightedScore += match.matchPercentage * weight.weight;
+              totalPriority += weight.weight;
             }
           }
+
+          // Normalize by total priority to keep score in 0-100 range
+          const totalMatchPercentage = totalPriority > 0 ? totalWeightedScore / totalPriority : 0;
 
           return {
             entity: candidate,
@@ -240,12 +250,6 @@ class MatchingService {
    * Calculate match between two entities with custom weights
    */
   async matchWithCustomWeights(request: MatchRequest): Promise<MatchResult> {
-    // Validate weights sum to 100
-    const totalWeight = request.weights.reduce((sum, w) => sum + w.weight, 0);
-    if (Math.abs(totalWeight - 100) > 0.01) {
-      throw new Error(`Weights must sum to 100, got ${totalWeight}`);
-    }
-
     // Fetch both entities
     const entity1 = await elasticsearchService.getEntity(request.entity1Id);
     const entity2 = await elasticsearchService.getEntity(request.entity2Id);
@@ -269,14 +273,20 @@ class MatchingService {
       parameterMatches.push(match);
     }
 
-    // Calculate weighted total
-    let totalMatchPercentage = 0;
+    // Calculate priority-weighted total
+    let totalWeightedScore = 0;
+    let totalPriority = 0;
+
     for (const match of parameterMatches) {
       const weight = activeWeights.find((w) => w.parameterName === match.parameterName);
       if (weight) {
-        totalMatchPercentage += (match.matchPercentage * weight.weight) / 100;
+        totalWeightedScore += match.matchPercentage * weight.weight;
+        totalPriority += weight.weight;
       }
     }
+
+    // Normalize by total priority to keep score in 0-100 range
+    const totalMatchPercentage = totalPriority > 0 ? totalWeightedScore / totalPriority : 0;
 
     return {
       entity1Id: entity1.profileId,
@@ -287,6 +297,83 @@ class MatchingService {
       parameterMatches,
       weights: request.weights,
       timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Match a Notion parameter value against a company entity
+   * Tries to match the value against common fields (country, profileType, marketSegment, keywords)
+   */
+  private matchNotionParameter(
+    candidate: CompanyEntity,
+    parameterName: string,
+    parameterValue: string
+  ): ParameterMatchResult {
+    const paramValueLower = parameterValue.toLowerCase();
+    let matchPercentage = 0;
+    let matchedField = '';
+
+    // Try to match against country
+    if (candidate.companyDetails.country) {
+      const countryMatch = textSimilarity(
+        candidate.companyDetails.country,
+        parameterValue
+      );
+      if (countryMatch > matchPercentage) {
+        matchPercentage = countryMatch;
+        matchedField = 'country';
+      }
+    }
+
+    // Try to match against profileType
+    if (candidate.classification.profileType) {
+      const profileMatch = textSimilarity(
+        candidate.classification.profileType,
+        parameterValue
+      );
+      if (profileMatch > matchPercentage) {
+        matchPercentage = profileMatch;
+        matchedField = 'profileType';
+      }
+    }
+
+    // Try to match against marketSegment
+    if (candidate.classification.marketSegment) {
+      const segmentMatch = textSimilarity(
+        candidate.classification.marketSegment,
+        parameterValue
+      );
+      if (segmentMatch > matchPercentage) {
+        matchPercentage = segmentMatch;
+        matchedField = 'marketSegment';
+      }
+    }
+
+    // Try to match against keywords
+    if (candidate.classification.keywords && candidate.classification.keywords.length > 0) {
+      const keywordMatches = candidate.classification.keywords.filter((k) =>
+        String(k).toLowerCase().includes(paramValueLower) ||
+        paramValueLower.includes(String(k).toLowerCase())
+      );
+      if (keywordMatches.length > 0) {
+        const keywordMatch = (keywordMatches.length / candidate.classification.keywords.length) * 100;
+        if (keywordMatch > matchPercentage) {
+          matchPercentage = keywordMatch;
+          matchedField = 'keywords';
+        }
+      }
+    }
+
+    return {
+      parameterName,
+      parameterLabel: parameterValue,
+      type: 'text',
+      matchPercentage: Math.round(matchPercentage * 100) / 100,
+      value1: parameterValue,
+      value2: matchedField ? candidate[matchedField as keyof CompanyEntity] : 'No match',
+      explanation: matchPercentage > 0
+        ? `Matched "${parameterValue}" against ${matchedField}: ${Math.round(matchPercentage)}%`
+        : `No match found for "${parameterValue}"`,
     };
   }
 

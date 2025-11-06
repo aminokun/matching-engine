@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import * as Select from '@radix-ui/react-select';
-import { ChevronDownIcon, CheckIcon } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import * as Select from "@radix-ui/react-select";
+import { ChevronDownIcon, CheckIcon } from "lucide-react";
 
 export interface Entity {
   profileId: string;
@@ -21,26 +21,34 @@ export interface SingleEntitySelectorProps {
   error?: string;
 }
 
-export default function SingleEntitySelector({ onSelect, loading = false, error }: SingleEntitySelectorProps) {
+export default function SingleEntitySelector({
+  onSelect,
+  loading = false,
+}: SingleEntitySelectorProps) {
   const [entities, setEntities] = useState<Entity[]>([]);
-  const [entityId, setEntityId] = useState<string>('');
+  const [entityId, setEntityId] = useState<string>("");
   const [loadingEntities, setLoadingEntities] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string>("");
 
   // Fetch entities on mount
   useEffect(() => {
     const fetchEntities = async () => {
       setLoadingEntities(true);
-      setErrorMessage('');
+      setErrorMessage("");
       try {
-        const response = await fetch('http://localhost:3001/api/entities?limit=100');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+        const response = await fetch(
+          `${apiUrl}/api/entities?limit=100`
+        );
         if (!response.ok) {
-          throw new Error('Failed to fetch entities');
+          throw new Error("Failed to fetch entities");
         }
         const data = await response.json();
         setEntities(data.entities || []);
       } catch (err) {
-        setErrorMessage(err instanceof Error ? err.message : 'Failed to fetch entities');
+        setErrorMessage(
+          err instanceof Error ? err.message : "Failed to fetch entities"
+        );
       } finally {
         setLoadingEntities(false);
       }
@@ -62,7 +70,9 @@ export default function SingleEntitySelector({ onSelect, loading = false, error 
     <div className="w-full max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
       <div className="mb-6">
         <h2 className="text-2xl font-bold mb-2">Select a Company</h2>
-        <p className="text-gray-600">Choose a company from the database to find matches for.</p>
+        <p className="text-gray-600">
+          Choose a company from the database to find matches for.
+        </p>
       </div>
 
       {errorMessage && !loadingEntities && entities.length === 0 && (
@@ -80,11 +90,13 @@ export default function SingleEntitySelector({ onSelect, loading = false, error 
       {!loadingEntities && entities.length > 0 && (
         <div className="space-y-8">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-3">Company</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-3">
+              Company
+            </label>
             <Select.Root value={entityId} onValueChange={setEntityId}>
               <Select.Trigger
                 disabled={loading}
-                className="inline-flex items-center justify-between w-full px-4 py-3 text-left bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-between w-full px-4 py-3 text-left bg-white border border-gray-300 rounded-lg hover:bg-gray-50  disabled:cursor-not-allowed"
               >
                 <Select.Value
                   placeholder="Select a company..."
@@ -121,14 +133,19 @@ export default function SingleEntitySelector({ onSelect, loading = false, error 
 
             {selectedEntity && (
               <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm">
-                <p className="font-medium text-blue-900">{selectedEntity.companyName}</p>
+                <p className="font-medium text-blue-900">
+                  {selectedEntity.companyName}
+                </p>
                 <div className="grid grid-cols-2 gap-2 mt-2 text-blue-800">
                   <p>Country: {selectedEntity.country}</p>
                   <p>City: {selectedEntity.city}</p>
                   <p>Type: {selectedEntity.profileType}</p>
                   <p>Segment: {selectedEntity.marketSegment}</p>
                   <p>Employees: {selectedEntity.numberOfEmployees}</p>
-                  <p>Turnover: ${(selectedEntity.annualTurnover / 1000000).toFixed(1)}M</p>
+                  <p>
+                    Turnover: $
+                    {(selectedEntity.annualTurnover / 1000000).toFixed(1)}M
+                  </p>
                 </div>
               </div>
             )}
@@ -136,7 +153,9 @@ export default function SingleEntitySelector({ onSelect, loading = false, error 
 
           {entityId && (
             <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm text-green-700 font-medium">✓ Ready to define ideal profile</p>
+              <p className="text-sm text-green-700 font-medium">
+                ✓ Ready to define ideal profile
+              </p>
             </div>
           )}
         </div>

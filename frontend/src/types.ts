@@ -30,7 +30,7 @@ export interface BackendResponse {
   totalHits: number;
   took: number;
   query?: string;
-  extractedParams?: Record<string, any>;
+  extractedParams?: Record<string, unknown>;
   explanations?: Record<string, string>;
 }
 

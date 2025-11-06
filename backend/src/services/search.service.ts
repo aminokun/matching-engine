@@ -166,6 +166,10 @@ class SearchService {
 
     if (shouldClauses.length > 0) {
       boolQuery.should = shouldClauses;
+      // If no must clauses, require at least one should clause to match
+      if (mustClauses.length === 0) {
+        boolQuery.minimum_should_match = 1;
+      }
     }
 
     if (filterClauses.length > 0) {

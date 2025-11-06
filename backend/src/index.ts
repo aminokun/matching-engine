@@ -2,7 +2,9 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import searchRoute from './routes/search.route';
+import matchSearchRoute from './routes/match-search.route';
 import matchRoute from './routes/match.route';
+import notionRoute from './routes/notion.route';
 
 const fastify = Fastify({
   logger: {
@@ -21,7 +23,9 @@ fastify.register(cors, {
 
 // Register routes
 fastify.register(searchRoute, { prefix: '/api' });
+fastify.register(matchSearchRoute, { prefix: '/api' });
 fastify.register(matchRoute, { prefix: '/api' });
+fastify.register(notionRoute, { prefix: '/api' });
 
 // Health check
 fastify.get('/health', async () => {

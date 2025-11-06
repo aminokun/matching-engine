@@ -1,209 +1,219 @@
-'use client';
+// app/match/page.tsx
+"use client";
 
-import React, { useState, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import SingleEntitySelector from '@/components/SingleEntitySelector';
+import IdealProfileBuilder, { IdealProfile } from '@/components/IdealProfileBuilder';
 import WeightAllocator, { Parameter, ParameterWeight } from '@/components/WeightAllocator';
-import EntitySelector from '@/components/EntitySelector';
-import MatchResults, { MatchResultData } from '@/components/MatchResults';
-
-interface ApiParameter {
-  name: string;
-  label: string;
-  type: 'exact' | 'numeric' | 'text' | 'semantic';
-}
+import MatchResultsList, { SearchMatchesResponse } from '@/components/MatchResultsList';
+import NotionExportDialog from '@/components/NotionExportDialog';
+import NotionParameterSelector, { SelectedDatabase } from '@/components/NotionParameterSelector';
 
 export default function MatchPage() {
-  const [parameters, setParameters] = useState<Parameter[]>([]);
+  const [entityId, setEntityId] = useState<string>('');
+  const [idealProfile, setIdealProfile] = useState<IdealProfile>({});
   const [weights, setWeights] = useState<ParameterWeight[]>([]);
-  const [entity1Id, setEntity1Id] = useState<string>('');
-  const [entity2Id, setEntity2Id] = useState<string>('');
-  const [results, setResults] = useState<MatchResultData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [loadingParameters, setLoadingParameters] = useState(true);
+  const [matchResults, setMatchResults] = useState<SearchMatchesResponse | null>(null);
+  const [selectedMatches, setSelectedMatches] = useState<string[]>([]);
+  const [selectedNotionDatabases, setSelectedNotionDatabases] = useState<SelectedDatabase[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
-  // Fetch available parameters on mount
-  useEffect(() => {
-    const fetchParameters = async () => {
-      try {
-        const response = await fetch('http://localhost:3001/api/parameters');
-        if (!response.ok) {
-          throw new Error('Failed to fetch parameters');
-        }
-        const data = await response.json();
-        setParameters(data.parameters || []);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch parameters');
-      } finally {
-        setLoadingParameters(false);
-      }
-    };
+  // Generate parameters from selected Notion databases
+  const parameters = useMemo(() => {
+    const params: Parameter[] = [];
 
-    fetchParameters();
-  }, []);
+    selectedNotionDatabases.forEach((db) => {
+      db.parameters.forEach((param) => {
+        params.push({
+          name: param.id,
+          label: param.name,
+          type: 'notion',
+          databaseName: db.name,
+        });
+      });
+    });
 
-  // Calculate match when weights and entities are both selected
-  useEffect(() => {
-    if (weights.length > 0 && entity1Id && entity2Id && entity1Id !== entity2Id) {
-      calculateMatch();
-    }
-  }, [weights, entity1Id, entity2Id]);
+    return params;
+  }, [selectedNotionDatabases]);
 
-  const calculateMatch = async () => {
-    if (weights.length === 0 || !entity1Id || !entity2Id) {
+  const handleSearch = useCallback(async () => {
+    if (!idealProfile.textQuery?.trim()) {
+      setError("Please enter your requirements before searching");
       return;
     }
 
-    setLoading(true);
-    setError('');
+    if (weights.length === 0) {
+      setError("Please select and allocate weights to parameters");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setMatchResults(null);
+    setSelectedMatches([]);
+
     try {
-      const response = await fetch('http://localhost:3001/api/match', {
+      const requestData = {
+        idealProfile,
+        weights,
+        minThreshold: 0,
+      };
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${apiUrl}/api/search-matches`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          entity1Id,
-          entity2Id,
-          weights,
-        }),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to calculate match');
+        throw new Error(`Error: ${response.status}`);
       }
 
       const data = await response.json();
-      setResults(data);
+      setMatchResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to calculate match');
+      setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  };
+  }, [idealProfile, weights]);
 
-  const handleWeightsChange = (newWeights: ParameterWeight[]) => {
-    setWeights(newWeights);
-  };
 
-  const handleEntitySelect = (ent1Id: string, ent2Id: string) => {
-    setEntity1Id(ent1Id);
-    setEntity2Id(ent2Id);
-  };
+  // Prepare company data for export dialog
+  const selectedCompanyData = matchResults
+    ? matchResults.matches
+        .filter((m) => selectedMatches.includes(m.entity.profileId))
+        .map((m) => ({
+          profileId: m.entity.profileId,
+          companyName: m.entity.companyDetails.companyName,
+          matchPercentage: m.matchPercentage,
+        }))
+    : [];
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Page Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Company Matching Engine</h1>
-          <p className="text-lg text-gray-700">
-            Configure weights for parameters and find how well companies match based on your priorities
-          </p>
-        </div>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Company Match Finder</h1>
+          <p className="text-gray-600 mt-2">Select a source company, define ideal profile criteria, and find matching partners.</p>
+        </header>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-lg max-w-2xl mx-auto">
-            <p className="text-red-700">Error: {error}</p>
+        {/* Top Row - Company Selection & Profile/Weights */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Left Column - Company Selection */}
+          <div>
+            <div className="bg-white rounded-lg shadow p-6 h-fit">
+              <SingleEntitySelector onSelect={setEntityId} />
+            </div>
           </div>
-        )}
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column - Configuration */}
-          <div className="space-y-8">
-            {/* Step 1: Weight Allocator */}
-            <section>
-              <div className="sticky top-8">
-                {!loadingParameters ? (
+          {/* Right Column - Profile Builder & Weights Combined */}
+          <div>
+            <div className="bg-white rounded-lg shadow p-6">
+              {/* Notion Parameter Selector */}
+              <div className="mb-6">
+                <NotionParameterSelector onParametersChange={setSelectedNotionDatabases} />
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-gray-200 my-6"></div>
+
+              {/* Ideal Profile Builder */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Define Ideal Profile</h3>
+                <IdealProfileBuilder onProfileChange={setIdealProfile} />
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-gray-200 my-6"></div>
+
+              {/* Weight Allocator */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Allocate Weights</h3>
+                {parameters.length > 0 && (
                   <WeightAllocator
                     parameters={parameters}
-                    onWeightsChange={handleWeightsChange}
-                    disabled={loading}
+                    onWeightsChange={setWeights}
                   />
-                ) : (
-                  <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
-                    <p className="text-center text-gray-600">Loading parameters...</p>
-                  </div>
+                )}
+
+                {parameters.length === 0 && (
+                  <p className="text-gray-600 text-center">Select Notion databases above to see parameters</p>
                 )}
               </div>
-            </section>
 
-            {/* Step 2: Entity Selector */}
-            <section>
-              <div className="sticky top-96">
-                <EntitySelector
-                  onSelect={handleEntitySelect}
-                  loading={loading}
-                  error={error}
-                />
-              </div>
-            </section>
-          </div>
-
-          {/* Right Column - Results */}
-          <div className="space-y-8">
-            {results && (
-              <section className="sticky top-8">
-                <MatchResults data={results} loading={loading} />
-              </section>
-            )}
-
-            {!results && !loading && weights.length > 0 && entity1Id && entity2Id && (
-              <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
-                <p className="text-center text-gray-600">
-                  Select two different companies to see match results
-                </p>
-              </div>
-            )}
-
-            {!results && weights.length === 0 && (
-              <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
-                <p className="text-center text-gray-600">
-                  Configure weights and select companies to calculate matches
-                </p>
-              </div>
-            )}
-
-            {loading && (
-              <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
-                <div className="text-center">
-                  <div className="inline-block">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
-                  </div>
-                  <p className="text-gray-600 mt-4">Calculating match...</p>
-                </div>
-              </div>
-            )}
+              {/* Search Button */}
+              <button
+                onClick={handleSearch}
+                disabled={!idealProfile.textQuery?.trim() || weights.length === 0 || isLoading}
+                className="mt-6 w-full py-3 px-4 rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                {isLoading ? 'Searching...' : 'Search for Matches'}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Quick Help */}
-        <div className="mt-16 max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">How to Use</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-2">1. Set Weights</h3>
-              <p className="text-sm text-gray-600">
-                Select which parameters matter for your matching and assign weights. Weights must sum to 100%.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-2">2. Select Companies</h3>
-              <p className="text-sm text-gray-600">
-                Choose two different companies from the database to compare against your configured weights.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-2">3. Review Results</h3>
-              <p className="text-sm text-gray-600">
-                See how the companies match with a detailed breakdown showing which parameters aligned best.
-              </p>
-            </div>
+        {/* Bottom Row - Match Results */}
+        <div>
+          <div className="bg-white rounded-lg shadow p-6">
+            {isLoading && (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+                <p className="text-gray-600">Finding matches...</p>
+              </div>
+            )}
+
+            {error && (
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            {matchResults && !isLoading && !error && (
+              <>
+                <MatchResultsList
+                  data={matchResults}
+                  onSelectionsChange={setSelectedMatches}
+                />
+
+                {selectedMatches.length > 0 && (
+                  <button
+                    onClick={() => setExportDialogOpen(true)}
+                    className="mt-6 w-full py-3 px-4 rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  >
+                    Send {selectedMatches.length} to Notion
+                  </button>
+                )}
+              </>
+            )}
+
+            {!matchResults && !isLoading && !error && (
+              <div className="text-center py-12">
+                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <h3 className="mt-2 text-sm font-medium text-gray-900">No results yet</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Enter your ideal profile and allocate weights to find matches.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </main>
+
+      {/* Export Dialog */}
+      <NotionExportDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        selectedCompanies={selectedCompanyData}
+      />
+    </div>
   );
 }

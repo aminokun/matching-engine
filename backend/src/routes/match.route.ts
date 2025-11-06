@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import matchingService, { MatchRequest, SearchMatchRequest } from '../services/matching.service';
 import elasticsearchService from '../services/elasticsearch.service';
+import claudeService from '../services/claude.service';
 
 export default async function matchRoute(fastify: FastifyInstance) {
   /**
@@ -62,91 +63,6 @@ export default async function matchRoute(fastify: FastifyInstance) {
     }
   });
 
-  /**
-   * GET /api/entities
-   * List all available entities for matching
-   *
-   * Query parameters:
-   * - limit: number (default: 100, max: 1000)
-   */
-  fastify.get<{ Querystring: { limit?: string } }>('/entities', async (request: FastifyRequest<{ Querystring: { limit?: string } }>, reply: FastifyReply) => {
-    try {
-      const limit = Math.min(parseInt(request.query.limit || '100'), 1000);
-      const entities = await elasticsearchService.getAllEntities(limit);
-
-      return {
-        total: await elasticsearchService.getEntityCount(),
-        count: entities.length,
-        entities: entities.map((entity) => ({
-          profileId: entity.profileId,
-          companyName: entity.companyDetails.companyName,
-          country: entity.companyDetails.country,
-          city: entity.companyDetails.city,
-          profileType: entity.classification.profileType,
-          marketSegment: entity.classification.marketSegment,
-          numberOfEmployees: entity.companyDetails.numberOfEmployees,
-          annualTurnover: entity.companyDetails.annualTurnover,
-        })),
-      };
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.status(500).send({
-        error: error instanceof Error ? error.message : 'Failed to fetch entities',
-      });
-    }
-  });
-
-  /**
-   * GET /api/parameters
-   * List available parameters for matching with their types
-   */
-  fastify.get('/parameters', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const parameters = elasticsearchService.getAvailableParameters();
-
-      return {
-        count: parameters.length,
-        parameters: parameters.map((param) => ({
-          name: param.name,
-          label: param.label,
-          type: param.type,
-        })),
-      };
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.status(500).send({
-        error: 'Failed to fetch parameters',
-      });
-    }
-  });
-
-  /**
-   * GET /api/entity/:profileId
-   * Get a single entity by ID
-   */
-  fastify.get<{ Params: { profileId: string } }>('/entity/:profileId', async (request: FastifyRequest<{ Params: { profileId: string } }>, reply: FastifyReply) => {
-    try {
-      const entity = await elasticsearchService.getEntity(request.params.profileId);
-
-      if (!entity) {
-        return reply.status(404).send({
-          error: 'Entity not found',
-        });
-      }
-
-      return {
-        profileId: entity.profileId,
-        companyDetails: entity.companyDetails,
-        classification: entity.classification,
-        primaryContact: entity.primaryContact,
-      };
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.status(500).send({
-        error: error instanceof Error ? error.message : 'Failed to fetch entity',
-      });
-    }
-  });
 
   /**
    * POST /api/match/batch
@@ -156,7 +72,7 @@ export default async function matchRoute(fastify: FastifyInstance) {
    * {
    *   "pairs": [
    *     { "entity1Id": "...", "entity2Id": "...", "weights": [...] },
-   *     ...
+   *     ..
    *   ]
    * }
    */
@@ -176,6 +92,36 @@ export default async function matchRoute(fastify: FastifyInstance) {
       fastify.log.error(error);
       return reply.status(400).send({
         error: error instanceof Error ? error.message : 'Failed to calculate matches',
+      });
+    }
+  });
+
+  /**
+   * POST /api/extract-parameters
+   * Extract structured parameters from natural language query
+   *
+   * Request body:
+   * {
+   *   "query": "distributor in germany for audio equipment"
+   * }
+   */
+  fastify.post<{ Body: { query: string } }>('/extract-parameters', async (request: FastifyRequest<{ Body: { query: string } }>, reply: FastifyReply) => {
+    try {
+      if (!request.body.query || request.body.query.trim().length === 0) {
+        return {
+          country: null,
+          profileType: null,
+          marketSegment: null,
+          keywords: null,
+        };
+      }
+
+      const extractedParams = await claudeService.extractSearchParameters(request.body.query);
+      return extractedParams;
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(400).send({
+        error: error instanceof Error ? error.message : 'Failed to extract parameters',
       });
     }
   });

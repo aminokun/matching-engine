@@ -8,8 +8,8 @@ export interface ParameterMatch {
   parameterLabel: string;
   type: 'exact' | 'numeric' | 'text' | 'semantic';
   matchPercentage: number;
-  value1: any;
-  value2: any;
+  value1: string | number | string[];
+  value2: string | number | string[];
   explanation: string;
 }
 
@@ -48,13 +48,7 @@ export default function MatchResults({ data, loading = false }: MatchResultsProp
     return 'text-red-700';
   };
 
-  const getMatchBgColor = (percentage: number): string => {
-    if (percentage >= 75) return 'bg-green-100';
-    if (percentage >= 50) return 'bg-yellow-100';
-    return 'bg-red-100';
-  };
-
-  const formatValue = (value: any): string => {
+  const formatValue = (value: string | number | string[]): string => {
     if (Array.isArray(value)) {
       return value.join(', ');
     }
