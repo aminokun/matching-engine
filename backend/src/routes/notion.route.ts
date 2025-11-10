@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import notionService from '../services/notion.service';
+import notionService, { ExportCompanyData } from '../services/notion.service';
 
 export default async function notionRoute(fastify: FastifyInstance) {
   /**
@@ -128,6 +128,86 @@ export default async function notionRoute(fastify: FastifyInstance) {
         fastify.log.error(error);
         return reply.status(500).send({
           error: error instanceof Error ? error.message : 'Failed to fetch batch databases',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/notion/export
+   * Export matched companies to Notion database
+   *
+   * Request body:
+   * {
+   *   "companies": [ExportCompanyData, ...]
+   * }
+   *
+   * Response:
+   * {
+   *   "success": boolean,
+   *   "exported": number,
+   *   "failed": number,
+   *   "results": [
+   *     {
+   *       "profileId": string,
+   *       "pageId": string (if successful),
+   *       "error": string (if failed)
+   *     }
+   *   ]
+   * }
+   */
+  fastify.post<{ Body: { companies: ExportCompanyData[] } }>(
+    '/notion/export',
+    async (request: FastifyRequest<{ Body: { companies: ExportCompanyData[] } }>, reply: FastifyReply) => {
+      try {
+        const { companies } = request.body;
+
+        if (!companies || companies.length === 0) {
+          return reply.status(400).send({
+            error: 'companies array is required',
+          });
+        }
+
+        const results: Array<{
+          profileId: string;
+          pageId?: string;
+          error?: string;
+        }> = [];
+
+        // Export companies sequentially with rate limiting (350ms delay)
+        for (const company of companies) {
+          try {
+            const pageId = await notionService.exportCompanyToNotion(company);
+            results.push({
+              profileId: company.profileId,
+              pageId,
+            });
+            // Add delay between exports to respect Notion API rate limits (3 requests/sec)
+            // 350ms ensures we stay within the limit
+            if (companies.indexOf(company) < companies.length - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 350));
+            }
+          } catch (error) {
+            results.push({
+              profileId: company.profileId,
+              error: error instanceof Error ? error.message : 'Failed to export company',
+            });
+          }
+        }
+
+        const exportedCount = results.filter((r) => r.pageId).length;
+        const failedCount = results.filter((r) => r.error).length;
+
+        return {
+          success: failedCount === 0,
+          exported: exportedCount,
+          failed: failedCount,
+          results,
+        };
+      } catch (error) {
+        fastify.log.error(error);
+        return reply.status(500).send({
+          error: error instanceof Error ? error.message : 'Failed to export companies',
         });
       }
     }
