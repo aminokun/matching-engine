@@ -22,6 +22,60 @@ export interface NotionParameter {
   description?: string;
 }
 
+export interface ParameterMatchResult {
+  parameterName: string;
+  parameterLabel: string;
+  type: 'exact' | 'numeric' | 'text' | 'semantic';
+  matchPercentage: number;
+  value1: any;
+  value2: any;
+  explanation: string;
+}
+
+export interface CompanyDetailsForExport {
+  companyName: string;
+  country?: string;
+  city?: string;
+  summaryOfActivity?: string;
+  dateEstablished?: string;
+  numberOfEmployees?: number;
+  annualTurnover?: number;
+  website?: string;
+  linkedinPage?: string;
+  telephone?: string;
+  generalEmail?: string;
+}
+
+export interface ClassificationForExport {
+  profileType?: string;
+  marketSegment?: string;
+  keywords?: string[];
+  servicesOffered?: string[];
+  clientTypesServed?: string[];
+}
+
+export interface PrimaryContactForExport {
+  firstName?: string;
+  lastName?: string;
+  jobTitle?: string;
+  gender?: string;
+  email?: string;
+  telephone?: string;
+  linkedinPage?: string;
+  type?: string;
+}
+
+export interface ExportCompanyData {
+  profileId: string;
+  matchPercentage: number;
+  companyDetails: CompanyDetailsForExport;
+  classification: ClassificationForExport;
+  primaryContact: PrimaryContactForExport;
+  parameterMatches: ParameterMatchResult[];
+  ingestionDate: string;
+  source: string;
+}
+
 class NotionService {
   /**
    * Get all accessible databases from Notion workspace
@@ -255,6 +309,177 @@ class NotionService {
       console.error(`Failed to fetch Notion database schema for ${databaseId}:`, error);
       throw new Error('Failed to fetch database schema');
     }
+  }
+
+  /**
+   * Export a company to Notion as a new page
+   */
+  async exportCompanyToNotion(company: ExportCompanyData): Promise<string> {
+    try {
+      if (!notion) {
+        throw new Error('Notion API not configured');
+      }
+
+      const databaseId = process.env.NOTION_EXPORT_DATABASE_ID;
+      if (!databaseId) {
+        throw new Error('NOTION_EXPORT_DATABASE_ID not configured in environment');
+      }
+
+      // Build the page content with grouped rich text structure
+      const { title, children } = this.buildNotionPageContent(company);
+
+      // Create the page
+      const response = await (notion as any).pages.create({
+        parent: {
+          database_id: databaseId,
+        },
+        properties: {
+          title: {
+            title: [
+              {
+                text: {
+                  content: title,
+                },
+              },
+            ],
+          },
+        },
+        children: children,
+      });
+
+      console.log(`Successfully exported company ${company.profileId} to Notion`);
+      return response.id;
+    } catch (error) {
+      console.error(`Failed to export company to Notion:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Helper method to build grouped rich text content for Notion page
+   */
+  private buildNotionPageContent(company: ExportCompanyData): {
+    title: string;
+    children: any[];
+  } {
+    const { companyDetails, classification, primaryContact, parameterMatches, matchPercentage, profileId, source, ingestionDate } = company;
+    const children: any[] = [];
+
+    // Helper function to add heading
+    const addHeading = (text: string, level: 1 | 2 | 3) => {
+      const key = `heading_${level}`;
+      children.push({
+        object: 'block',
+        type: key,
+        [key]: {
+          rich_text: [{ type: 'text', text: { content: text } }],
+          color: 'default',
+          is_toggleable: false,
+        },
+      });
+    };
+
+    // Helper function to add paragraph
+    const addParagraph = (text: string, isCallout = false) => {
+      if (!text) return;
+      const chunk = { type: 'text', text: { content: text.substring(0, 2000) } };
+      if (isCallout) {
+        children.push({
+          object: 'block',
+          type: 'callout',
+          callout: {
+            rich_text: [chunk],
+            icon: { type: 'emoji', emoji: '💡' },
+            color: 'blue_background',
+          },
+        });
+      } else {
+        children.push({
+          object: 'block',
+          type: 'paragraph',
+          paragraph: {
+            rich_text: [chunk],
+            color: 'default',
+          },
+        });
+      }
+    };
+
+    // Title: Company Name + Match %
+    const title = `${companyDetails.companyName || 'Unknown Company'} - ${matchPercentage}% Match`;
+
+    // Company Overview Section
+    addHeading('Company Overview', 2);
+    const overviewText = [
+      companyDetails.country && `Location: ${companyDetails.country}${companyDetails.city ? ', ' + companyDetails.city : ''}`,
+      classification.profileType && `Profile Type: ${classification.profileType}`,
+      classification.marketSegment && `Market Segment: ${classification.marketSegment}`,
+      companyDetails.summaryOfActivity && `Summary: ${companyDetails.summaryOfActivity}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    if (overviewText) addParagraph(overviewText);
+
+    // Business Details Section
+    addHeading('Business Details', 2);
+    const detailsText = [
+      companyDetails.numberOfEmployees && `Employees: ${companyDetails.numberOfEmployees}`,
+      companyDetails.annualTurnover && `Annual Turnover: $${companyDetails.annualTurnover.toLocaleString()}`,
+      companyDetails.website && `Website: ${companyDetails.website}`,
+      companyDetails.dateEstablished && `Established: ${companyDetails.dateEstablished}`,
+      companyDetails.generalEmail && `Email: ${companyDetails.generalEmail}`,
+      companyDetails.telephone && `Phone: ${companyDetails.telephone}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    if (detailsText) addParagraph(detailsText);
+
+    // Classification Section
+    if (classification.keywords?.length || classification.servicesOffered?.length || classification.clientTypesServed?.length) {
+      addHeading('Classification', 2);
+      const classText = [
+        classification.keywords?.length && `Keywords: ${classification.keywords.join(', ')}`,
+        classification.servicesOffered?.length && `Services: ${classification.servicesOffered.join(', ')}`,
+        classification.clientTypesServed?.length && `Clients Served: ${classification.clientTypesServed.join(', ')}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      if (classText) addParagraph(classText);
+    }
+
+    // Match Breakdown Section
+    if (parameterMatches.length > 0) {
+      addHeading('Match Breakdown', 2);
+      parameterMatches.forEach((match) => {
+        const matchText = `${match.parameterLabel}: ${match.matchPercentage}% match (${match.type})`;
+        addParagraph(matchText);
+        if (match.explanation) {
+          addParagraph(`  └─ ${match.explanation}`, false);
+        }
+      });
+    }
+
+    // Primary Contact Section
+    if (primaryContact.firstName || primaryContact.lastName || primaryContact.email || primaryContact.telephone) {
+      addHeading('Primary Contact', 2);
+      const contactText = [
+        (primaryContact.firstName || primaryContact.lastName) && `Name: ${[primaryContact.firstName, primaryContact.lastName].filter(Boolean).join(' ')}`,
+        primaryContact.jobTitle && `Position: ${primaryContact.jobTitle}`,
+        primaryContact.email && `Email: ${primaryContact.email}`,
+        primaryContact.telephone && `Phone: ${primaryContact.telephone}`,
+        primaryContact.linkedinPage && `LinkedIn: ${primaryContact.linkedinPage}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      if (contactText) addParagraph(contactText);
+    }
+
+    // Metadata Footer
+    addHeading('Metadata', 3);
+    const metaText = `ID: ${profileId} | Source: ${source} | Ingested: ${ingestionDate} | Exported: ${new Date().toISOString()}`;
+    addParagraph(metaText);
+
+    return { title, children };
   }
 }
 

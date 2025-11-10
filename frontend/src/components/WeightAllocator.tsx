@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import * as Checkbox from '@radix-ui/react-checkbox';
-import * as Slider from '@radix-ui/react-slider';
-import { CheckIcon } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import * as Checkbox from "@radix-ui/react-checkbox";
+import * as Slider from "@radix-ui/react-slider";
+import { CheckIcon } from "lucide-react";
 
 export interface Parameter {
   name: string;
@@ -30,7 +30,9 @@ export default function WeightAllocator({
   onWeightsChange,
   disabled = false,
 }: WeightAllocatorProps) {
-  const [selectedParameters, setSelectedParameters] = useState<Set<string>>(new Set());
+  const [selectedParameters, setSelectedParameters] = useState<Set<string>>(
+    new Set()
+  );
   const [priorities, setPriorities] = useState<Map<string, number>>(new Map());
   const [totalPriority, setTotalPriority] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
@@ -83,8 +85,8 @@ export default function WeightAllocator({
       };
 
       // Include type and value for Notion parameters
-      if (param?.type === 'notion') {
-        weight.type = 'notion';
+      if (param?.type === "notion") {
+        weight.type = "notion";
         weight.value = param.label; // Use the label directly as the parameter value
       }
 
@@ -96,7 +98,7 @@ export default function WeightAllocator({
 
     const newErrors: string[] = [];
     if (currentSelected.size === 0) {
-      newErrors.push('Select at least one parameter');
+      newErrors.push("Select at least one parameter");
     }
 
     setErrors(newErrors);
@@ -110,23 +112,31 @@ export default function WeightAllocator({
   return (
     <div className="w-full">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2">Allocate Priorities</h2>
         <p className="text-slate-800">
-          Select parameters and set their importance (1-5, where 5 is most important).
+          Select parameters and set their importance (1-5, where 5 is most
+          important).
         </p>
       </div>
 
       {/* Parameter Selection Section */}
       <div className="mb-8">
-        <h3 className="text-lg font-semibold mb-4">Step 1: Select Parameters</h3>
+        <h3 className="text-lg font-semibold mb-4 text-gray-800">
+          Step 1: Select Parameters
+        </h3>
         <div className="max-h-64 overflow-y-auto space-y-4">
           {/* Group parameters by database */}
-          {Array.from(new Set(parameters.map((p) => p.databaseName || 'Other'))).map((dbName) => {
-            const dbParams = parameters.filter((p) => (p.databaseName || 'Other') === dbName);
+          {Array.from(
+            new Set(parameters.map((p) => p.databaseName || "Other"))
+          ).map((dbName) => {
+            const dbParams = parameters.filter(
+              (p) => (p.databaseName || "Other") === dbName
+            );
             return (
               <div key={dbName}>
                 {dbParams.length > 0 && (
-                  <h4 className="text-sm font-semibold text-slate-800 mb-2 px-3">{dbName}</h4>
+                  <h4 className="text-sm font-semibold text-slate-800 mb-2 px-3">
+                    {dbName}
+                  </h4>
                 )}
                 <div className="space-y-2 pl-2">
                   {dbParams.map((p) => (
@@ -165,7 +175,9 @@ export default function WeightAllocator({
       {/* Priority Allocation Section */}
       {selectedParameters.size > 0 && (
         <div className="mb-8">
-          <h3 className="text-lg font-semibold mb-4">Step 2: Set Priorities</h3>
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">
+            Step 2: Set Priorities
+          </h3>
           <div className="space-y-6">
             {Array.from(selectedParameters).map((paramName) => {
               const param = parameters.find((p) => p.name === paramName);
@@ -185,7 +197,10 @@ export default function WeightAllocator({
                         step="1"
                         value={currentPriority}
                         onChange={(e) => {
-                          const newValue = Math.min(5, Math.max(1, parseInt(e.target.value) || 1));
+                          const newValue = Math.min(
+                            5,
+                            Math.max(1, parseInt(e.target.value) || 1)
+                          );
                           handlePriorityChange(paramName, newValue);
                         }}
                         disabled={disabled}
@@ -196,7 +211,9 @@ export default function WeightAllocator({
                   </div>
                   <Slider.Root
                     value={[currentPriority]}
-                    onValueChange={(value) => handlePriorityChange(paramName, value[0])}
+                    onValueChange={(value) =>
+                      handlePriorityChange(paramName, value[0])
+                    }
                     min={1}
                     max={5}
                     step={1}
@@ -226,8 +243,12 @@ export default function WeightAllocator({
       {selectedParameters.size > 0 && (
         <div className="mb-6 p-4 bg-gray-50 rounded-lg">
           <div className="flex justify-between items-center">
-            <span className="font-medium text-slate-800">Total Priority Score</span>
-            <span className="text-lg font-bold text-blue-600">{totalPriority}</span>
+            <span className="font-medium text-slate-800">
+              Total Priority Score
+            </span>
+            <span className="text-lg font-bold text-blue-600">
+              {totalPriority}
+            </span>
           </div>
           <p className="text-xs text-slate-800 mt-2">
             Higher values indicate more important parameters in matching.
@@ -238,7 +259,9 @@ export default function WeightAllocator({
       {/* Errors */}
       {errors.length > 0 && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700 font-medium">Configuration Errors:</p>
+          <p className="text-sm text-red-700 font-medium">
+            Configuration Errors:
+          </p>
           <ul className="mt-2 space-y-1">
             {errors.map((error, idx) => (
               <li key={idx} className="text-sm text-red-600">
@@ -252,7 +275,9 @@ export default function WeightAllocator({
       {/* Success State */}
       {errors.length === 0 && selectedParameters.size > 0 && (
         <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-sm text-green-700 font-medium">✓ Ready to match with these priorities</p>
+          <p className="text-sm text-green-700 font-medium">
+            ✓ Ready to match with these priorities
+          </p>
         </div>
       )}
     </div>

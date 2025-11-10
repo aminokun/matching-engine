@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
 export interface IdealProfile {
   textQuery?: string;
@@ -15,7 +15,7 @@ export default function IdealProfileBuilder({
   onProfileChange,
   disabled = false,
 }: IdealProfileBuilderProps) {
-  const [textQuery, setTextQuery] = useState('');
+  const [textQuery, setTextQuery] = useState("");
 
   const handleTextChange = (text: string) => {
     setTextQuery(text);
@@ -25,7 +25,6 @@ export default function IdealProfileBuilder({
   return (
     <div className="w-full">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2">Define Ideal Profile</h2>
         <p className="text-gray-600">
           Describe what you're looking for in a company.
         </p>

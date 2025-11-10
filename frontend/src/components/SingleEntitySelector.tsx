@@ -36,10 +36,9 @@ export default function SingleEntitySelector({
       setLoadingEntities(true);
       setErrorMessage("");
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-        const response = await fetch(
-          `${apiUrl}/api/entities?limit=100`
-        );
+        const apiUrl =
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+        const response = await fetch(`${apiUrl}/api/entities?limit=100`);
         if (!response.ok) {
           throw new Error("Failed to fetch entities");
         }
@@ -69,7 +68,9 @@ export default function SingleEntitySelector({
   return (
     <div className="w-full max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2">Select a Company</h2>
+        <h2 className="text-2xl font-bold mb-2 text-gray-800">
+          Select a Company
+        </h2>
         <p className="text-gray-600">
           Choose a company from the database to find matches for.
         </p>
@@ -96,7 +97,7 @@ export default function SingleEntitySelector({
             <Select.Root value={entityId} onValueChange={setEntityId}>
               <Select.Trigger
                 disabled={loading}
-                className="inline-flex items-center justify-between w-full px-4 py-3 text-left bg-white border border-gray-300 rounded-lg hover:bg-gray-50  disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-between w-full px-4 py-3 text-left bg-white border border-gray-300 text-gray-800 rounded-lg hover:bg-gray-50  disabled:cursor-not-allowed"
               >
                 <Select.Value
                   placeholder="Select a company..."
@@ -115,7 +116,7 @@ export default function SingleEntitySelector({
                       <Select.Item
                         key={entity.profileId}
                         value={entity.profileId}
-                        className="flex items-center px-3 py-2 text-sm rounded hover:bg-blue-50 hover:text-blue-900 data-[highlighted]:bg-blue-100 data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed cursor-pointer"
+                        className="flex items-center text-gray-800 px-3 py-2 text-sm rounded hover:bg-blue-50 hover:text-blue-900 data-[highlighted]:bg-blue-100 data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed cursor-pointer"
                       >
                         <Select.ItemText>{entity.companyName}</Select.ItemText>
                         <Select.ItemIndicator className="ml-auto">
