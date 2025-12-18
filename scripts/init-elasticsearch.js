@@ -4,20 +4,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const ES_URL = 'http://localhost:9200';
-const ES_USER = 'elastic';
-const ES_PASS = 'changeme';
-const INDEX_NAME = 'company-profiles';
-
-const auth = Buffer.from(`${ES_USER}:${ES_PASS}`).toString('base64');
+const OS_URL = process.env.OPENSEARCH_URL || 'http://192.168.189.161:9200';
+const INDEX_NAME = process.env.OPENSEARCH_INDEX || 'company-profiles';
 
 function makeRequest(method, urlPath, body = null) {
   return new Promise((resolve, reject) => {
-    const url = new URL(ES_URL + urlPath);
+    const url = new URL(OS_URL + urlPath);
     const options = {
       method,
       headers: {
-        'Authorization': `Basic ${auth}`,
         'Content-Type': 'application/json',
       },
     };
@@ -45,11 +40,10 @@ function makeRequest(method, urlPath, body = null) {
 
 function makeBulkRequest(ndjsonLines) {
   return new Promise((resolve, reject) => {
-    const url = new URL(ES_URL + '/_bulk');
+    const url = new URL(OS_URL + '/_bulk');
     const options = {
       method: 'POST',
       headers: {
-        'Authorization': `Basic ${auth}`,
         'Content-Type': 'application/x-ndjson',
       },
     };
@@ -73,19 +67,21 @@ function makeBulkRequest(ndjsonLines) {
   });
 }
 
-async function initElasticsearch() {
+async function initOpenSearch() {
   console.log('\n╔══════════════════════════════════════════════╗');
-  console.log('║  Elasticsearch Index Initialization          ║');
+  console.log('║  OpenSearch Index Initialization             ║');
   console.log('╚══════════════════════════════════════════════╝\n');
 
+  console.log(`   Connecting to: ${OS_URL}\n`);
+
   try {
-    // Check Elasticsearch connectivity
-    console.log('1. Checking Elasticsearch connectivity...');
+    // Check OpenSearch connectivity
+    console.log('1. Checking OpenSearch connectivity...');
     const health = await makeRequest('GET', '/_cluster/health');
     if (health.status !== 200) {
-      throw new Error(`Elasticsearch not responding: ${health.status}`);
+      throw new Error(`OpenSearch not responding: ${health.status}`);
     }
-    console.log('   ✓ Elasticsearch is accessible\n');
+    console.log('   ✓ OpenSearch is accessible\n');
 
     // Delete existing index if it exists
     console.log('2. Checking for existing index...');
@@ -177,4 +173,4 @@ async function initElasticsearch() {
   }
 }
 
-initElasticsearch();
+initOpenSearch();

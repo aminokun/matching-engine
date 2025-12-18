@@ -1,201 +1,149 @@
-import { Client } from '@elastic/elasticsearch';
-import { SearchParams } from './claude.service';
+import { Client } from '@opensearch-project/opensearch';
+import geminiEmbeddingService from './gemini-embedding.service';
 
 const client = new Client({
-  node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200',
-  auth: {
-    username: process.env.ELASTICSEARCH_USERNAME || 'elastic',
-    password: process.env.ELASTICSEARCH_PASSWORD || 'changeme',
+  node: process.env.OPENSEARCH_URL || 'http://192.168.189.161:9200',
+  ssl: {
+    rejectUnauthorized: false,
   },
 });
 
-const INDEX_NAME = process.env.ELASTICSEARCH_INDEX || 'company-profiles';
+const INDEX_NAME = process.env.OPENSEARCH_INDEX || 'company-profiles';
 
 export interface SearchResult {
   profileId: string;
   score: number;
+  matchPercentage: number;
   companyDetails: any;
   classification: any;
   primaryContact: any;
 }
 
 class SearchService {
-  async search(params: SearchParams, queryEmbedding?: number[]): Promise<SearchResult[]> {
-    const query = this.buildQuery(params, queryEmbedding);
+  /**
+   * Pure vector search using Gemini embeddings
+   * @param queryText - Combined search text from filters/query
+   * @param k - Number of results to return
+   */
+  async vectorSearch(queryText: string, k: number = 20): Promise<SearchResult[]> {
+    try {
+      // Generate embedding for the query
+      console.log('Generating embedding for query:', queryText);
+      const queryVector = await geminiEmbeddingService.embed(queryText);
 
+      // Execute knn search
+      const response = await client.search({
+        index: INDEX_NAME,
+        body: {
+          size: k,
+          query: {
+            knn: {
+              semanticEmbedding: {
+                vector: queryVector,
+                k: k,
+              },
+            },
+          },
+        },
+      });
+
+      // Map results with match percentage based on score
+      // OpenSearch knn returns scores between 0 and 1 for cosine similarity
+      return response.body.hits.hits.map((hit: any) => {
+        // Score normalization: knn scores are typically 0-1 for cosine
+        const score = hit._score || 0;
+        // Convert to percentage (cosine similarity of 1 = 100% match)
+        const matchPercentage = Math.min(100, Math.round(score * 100));
+
+        return {
+          profileId: hit._source.profileId,
+          score: score,
+          matchPercentage: matchPercentage,
+          companyDetails: hit._source.companyDetails,
+          classification: hit._source.classification,
+          primaryContact: hit._source.primaryContact,
+        };
+      });
+    } catch (error) {
+      console.error('OpenSearch vector search error:', error);
+      throw new Error('Failed to execute vector search');
+    }
+  }
+
+  /**
+   * Search using dynamic filters - converts filters to query text and does vector search
+   * @param filters - Dynamic filter object from Notion/frontend
+   */
+  async searchWithFilters(filters: Record<string, any>): Promise<SearchResult[]> {
+    // Convert filters to query text
+    const queryText = this.filtersToQueryText(filters);
+
+    if (!queryText.trim()) {
+      // If no filters, return all documents (fallback)
+      return this.getAllDocuments(20);
+    }
+
+    return this.vectorSearch(queryText);
+  }
+
+  /**
+   * Convert filter object to natural language query text
+   */
+  private filtersToQueryText(filters: Record<string, any>): string {
+    const parts: string[] = [];
+
+    for (const [key, value] of Object.entries(filters)) {
+      if (value === null || value === undefined || value === '') continue;
+
+      if (Array.isArray(value) && value.length > 0) {
+        parts.push(value.join(' '));
+      } else if (typeof value === 'string' && value.trim()) {
+        parts.push(value);
+      } else if (typeof value === 'object') {
+        // Handle nested objects like { min, max } for ranges
+        const nested = Object.values(value).filter(v => v !== null && v !== undefined);
+        if (nested.length > 0) {
+          parts.push(nested.join(' to '));
+        }
+      }
+    }
+
+    return parts.join(' ');
+  }
+
+  /**
+   * Fallback: get all documents without vector search
+   */
+  async getAllDocuments(limit: number = 20): Promise<SearchResult[]> {
     try {
       const response = await client.search({
         index: INDEX_NAME,
-        body: query,
-        size: 20,
+        body: {
+          size: limit,
+          query: { match_all: {} },
+        },
       });
 
-      return response.hits.hits.map((hit: any) => ({
+      return response.body.hits.hits.map((hit: any) => ({
         profileId: hit._source.profileId,
-        score: hit._score || 0,
+        score: 1,
+        matchPercentage: 100,
         companyDetails: hit._source.companyDetails,
         classification: hit._source.classification,
         primaryContact: hit._source.primaryContact,
       }));
     } catch (error) {
-      console.error('Elasticsearch search error:', error);
-      throw new Error('Failed to execute search');
+      console.error('OpenSearch getAllDocuments error:', error);
+      throw new Error('Failed to fetch documents');
     }
-  }
-
-  private buildQuery(params: SearchParams, queryEmbedding?: number[]) {
-    const mustClauses: any[] = [];
-    const shouldClauses: any[] = [];
-    const filterClauses: any[] = [];
-
-    // Exact match filters
-    if (params.country) {
-      filterClauses.push({
-        term: { 'companyDetails.country': params.country },
-      });
-    }
-
-    if (params.city) {
-      filterClauses.push({
-        term: { 'companyDetails.city.keyword': params.city },
-      });
-    }
-
-    if (params.profileType) {
-      shouldClauses.push({
-        term: {
-          'classification.profileType': {
-            value: params.profileType,
-            boost: 9.0, // High weight for profile type
-          },
-        },
-      });
-    }
-
-    // Market segment matching
-    if (params.marketSegment && params.marketSegment.length > 0) {
-      shouldClauses.push({
-        terms: {
-          'classification.marketSegment': params.marketSegment,
-          boost: 6.0,
-        },
-      });
-    }
-
-    // Services matching
-    if (params.servicesOffered && params.servicesOffered.length > 0) {
-      shouldClauses.push({
-        terms: {
-          'classification.servicesOffered': params.servicesOffered,
-          boost: 7.0,
-        },
-      });
-    }
-
-    // Employee range filter
-    if (params.employees) {
-      const rangeFilter: any = {};
-      if (params.employees.min !== null && params.employees.min !== undefined) {
-        rangeFilter.gte = params.employees.min;
-      }
-      if (params.employees.max !== null && params.employees.max !== undefined) {
-        rangeFilter.lte = params.employees.max;
-      }
-      if (Object.keys(rangeFilter).length > 0) {
-        filterClauses.push({
-          range: { 'companyDetails.numberOfEmployees': rangeFilter },
-        });
-      }
-    }
-
-    // Turnover range filter
-    if (params.turnover) {
-      const rangeFilter: any = {};
-      if (params.turnover.min !== null && params.turnover.min !== undefined) {
-        rangeFilter.gte = params.turnover.min;
-      }
-      if (params.turnover.max !== null && params.turnover.max !== undefined) {
-        rangeFilter.lte = params.turnover.max;
-      }
-      if (Object.keys(rangeFilter).length > 0) {
-        filterClauses.push({
-          range: { 'companyDetails.annualTurnover': rangeFilter },
-        });
-      }
-    }
-
-    // Text matching on keywords
-    if (params.keywords && params.keywords.length > 0) {
-      const keywordText = params.keywords.join(' ');
-      shouldClauses.push({
-        multi_match: {
-          query: keywordText,
-          fields: [
-            'companyDetails.companyName^3',
-            'companyDetails.summaryOfActivity^2',
-            'classification.keywords',
-          ],
-          type: 'best_fields',
-          boost: 8.0,
-        },
-      });
-    }
-
-    // Vector similarity search (if embedding provided)
-    if (queryEmbedding && queryEmbedding.length > 0) {
-      shouldClauses.push({
-        script_score: {
-          query: { match_all: {} },
-          script: {
-            source: "cosineSimilarity(params.query_vector, 'semanticEmbedding') + 1.0",
-            params: {
-              query_vector: queryEmbedding,
-            },
-          },
-          boost: 10.0, // High weight for semantic similarity
-        },
-      });
-    }
-
-    // Build final query
-    const boolQuery: any = {};
-
-    if (mustClauses.length > 0) {
-      boolQuery.must = mustClauses;
-    }
-
-    if (shouldClauses.length > 0) {
-      boolQuery.should = shouldClauses;
-      // If no must clauses, require at least one should clause to match
-      if (mustClauses.length === 0) {
-        boolQuery.minimum_should_match = 1;
-      }
-    }
-
-    if (filterClauses.length > 0) {
-      boolQuery.filter = filterClauses;
-    }
-
-    // If no clauses, match all
-    if (Object.keys(boolQuery).length === 0) {
-      return {
-        query: { match_all: {} },
-      };
-    }
-
-    return {
-      query: {
-        bool: boolQuery,
-      },
-    };
   }
 
   async healthCheck(): Promise<boolean> {
     try {
       const health = await client.cluster.health();
-      return health.status !== 'red';
+      return health.body.status !== 'red';
     } catch (error) {
-      console.error('Elasticsearch health check failed:', error);
+      console.error('OpenSearch health check failed:', error);
       return false;
     }
   }
@@ -206,16 +154,16 @@ class SearchService {
         index: INDEX_NAME,
         body: {
           query: {
-            term: { 'profileId': profileId },
+            term: { profileId: profileId },
           },
         },
       });
 
-      if (response.hits.hits.length === 0) {
+      if (response.body.hits.hits.length === 0) {
         return null;
       }
 
-      return response.hits.hits[0]._source;
+      return response.body.hits.hits[0]._source;
     } catch (error) {
       console.error('Error fetching profile:', error);
       return null;

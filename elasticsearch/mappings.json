@@ -4,6 +4,7 @@
     "settings": {
       "number_of_shards": 1,
       "number_of_replicas": 0,
+      "index.knn": true,
       "analysis": {
         "analyzer": {
           "company_analyzer": {
@@ -133,10 +134,13 @@
           }
         },
         "semanticEmbedding": {
-          "type": "dense_vector",
-          "dims": 384,
-          "index": true,
-          "similarity": "cosine"
+          "type": "knn_vector",
+          "dimension": 768,
+          "method": {
+            "name": "hnsw",
+            "space_type": "cosinesimil",
+            "engine": "lucene"
+          }
         }
       }
     }

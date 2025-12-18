@@ -1,103 +1,74 @@
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import claudeService from '../services/claude.service';
-import embeddingService from '../services/embedding.service';
 import searchService from '../services/search.service';
 import elasticsearchService from '../services/elasticsearch.service';
+import geminiEmbeddingService from '../services/gemini-embedding.service';
 
-// Request schema
+// Request schema - now accepts any dynamic filters
 const SearchRequestSchema = z.object({
   query: z.string().optional(),
-  filters: z.object({
-    country: z.string().optional(),
-    city: z.string().optional(),
-    profileType: z.string().optional(),
-    marketSegment: z.array(z.string()).optional(),
-    servicesOffered: z.array(z.string()).optional(),
-    keywords: z.array(z.string()).optional(),
-    employees: z.object({
-      min: z.number().optional(),
-      max: z.number().optional(),
-    }).optional(),
-    turnover: z.object({
-      min: z.number().optional(),
-      max: z.number().optional(),
-    }).optional(),
-  }).optional(),
-  includeExplanations: z.boolean().optional().default(true),
+  filters: z.record(z.any()).optional(),
 });
 
 const searchRoute: FastifyPluginAsync = async (fastify) => {
-  // Initialize embedding model on startup
+  // Initialize Gemini embedding service on startup
   fastify.addHook('onReady', async () => {
-    fastify.log.info('Initializing embedding model...');
-    await embeddingService.initialize();
-    fastify.log.info('Embedding model ready');
+    fastify.log.info('Initializing Gemini embedding service...');
+    await geminiEmbeddingService.initialize();
+    fastify.log.info('Gemini embedding service ready');
   });
 
-  // Main search endpoint
+  // Main search endpoint - pure vector search
   fastify.post('/search', async (request, reply) => {
     try {
       const body = SearchRequestSchema.parse(request.body);
 
-      let searchParams;
-      let queryEmbedding: number[] | undefined;
+      let queryText = '';
 
-      // Natural language query path
+      // Natural language query
       if (body.query) {
-        fastify.log.info(`Processing natural language query: "${body.query}"`);
-
-        // Extract parameters using Claude
-        searchParams = await claudeService.extractSearchParameters(body.query);
-        fastify.log.info(`Extracted parameters: ${JSON.stringify(searchParams)}`);
-
-        // Generate embedding for semantic search
-        const keywords = searchParams.keywords?.join(' ') || body.query;
-        queryEmbedding = await embeddingService.embed(keywords);
-        fastify.log.info('Generated query embedding');
+        queryText = body.query;
+        fastify.log.info(`Processing query: "${queryText}"`);
       }
-      // Structured filters path
-      else if (body.filters) {
-        fastify.log.info('Processing structured filters');
-        searchParams = body.filters;
-
-        // Generate embedding if keywords provided
-        if (body.filters.keywords && body.filters.keywords.length > 0) {
-          const keywords = body.filters.keywords.join(' ');
-          queryEmbedding = await embeddingService.embed(keywords);
+      // Dynamic filters - convert to query text
+      else if (body.filters && Object.keys(body.filters).length > 0) {
+        fastify.log.info(`Processing filters: ${JSON.stringify(body.filters)}`);
+        // Combine all filter values into search text
+        const parts: string[] = [];
+        for (const [key, value] of Object.entries(body.filters)) {
+          if (value === null || value === undefined || value === '') continue;
+          if (Array.isArray(value) && value.length > 0) {
+            parts.push(value.join(' '));
+          } else if (typeof value === 'string' && value.trim()) {
+            parts.push(value);
+          }
         }
+        queryText = parts.join(' ');
+        fastify.log.info(`Converted to query text: "${queryText}"`);
       }
-      // No query or filters
-      else {
-        return reply.code(400).send({
-          error: 'Either query or filters must be provided',
+
+      if (!queryText.trim()) {
+        // Return all documents if no query
+        const results = await searchService.getAllDocuments(20);
+        return reply.send({
+          results,
+          totalHits: results.length,
+          query: null,
         });
       }
 
-      // Execute search
+      // Execute vector search
       const startTime = Date.now();
-      const results = await searchService.search(searchParams, queryEmbedding);
+      const results = await searchService.vectorSearch(queryText);
       const searchDuration = Date.now() - startTime;
 
       fastify.log.info(`Search completed in ${searchDuration}ms, found ${results.length} results`);
-
-      // Generate AI explanations if requested
-      let explanations: Record<string, string> = {};
-      if (body.includeExplanations && body.query && results.length > 0) {
-        try {
-          explanations = await claudeService.generateExplanation(body.query, results);
-        } catch (error) {
-          fastify.log.warn(`Failed to generate explanations: ${error}`);
-        }
-      }
 
       return reply.send({
         results,
         totalHits: results.length,
         took: searchDuration,
-        query: body.query,
-        extractedParams: searchParams,
-        explanations: Object.keys(explanations).length > 0 ? explanations : undefined,
+        query: queryText,
       });
     } catch (error: any) {
       fastify.log.error('Search error:', error);
@@ -131,6 +102,7 @@ const searchRoute: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // Get all entities
   fastify.get<{ Querystring: { limit?: string } }>('/entities', async (request: FastifyRequest<{ Querystring: { limit?: string } }>, reply: FastifyReply) => {
     try {
       const limit = Math.min(parseInt(request.query.limit || '100'), 1000);
@@ -141,13 +113,13 @@ const searchRoute: FastifyPluginAsync = async (fastify) => {
         count: entities.length,
         entities: entities.map((entity: any) => ({
           profileId: entity.profileId,
-          companyName: entity.companyDetails.companyName,
-          country: entity.companyDetails.country,
-          city: entity.companyDetails.city,
-          profileType: entity.classification.profileType,
-          marketSegment: entity.classification.marketSegment,
-          numberOfEmployees: entity.companyDetails.numberOfEmployees,
-          annualTurnover: entity.companyDetails.annualTurnover,
+          companyName: entity.companyDetails?.companyName,
+          country: entity.companyDetails?.country,
+          city: entity.companyDetails?.city,
+          profileType: entity.classification?.profileType,
+          marketSegment: entity.classification?.marketSegment,
+          numberOfEmployees: entity.companyDetails?.numberOfEmployees,
+          annualTurnover: entity.companyDetails?.annualTurnover,
         })),
       };
     } catch (error) {
@@ -158,32 +130,14 @@ const searchRoute: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // Get available parameters for matching
-  fastify.get('/parameters', async (request, reply) => {
-    try {
-      const parameters = elasticsearchService.getAvailableParameters();
-      return {
-        parameters,
-      };
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.status(500).send({
-        error: error instanceof Error ? error.message : 'Failed to fetch parameters',
-      });
-    }
-  });
-
   // Health check for search services
   fastify.get('/search/health', async (request, reply) => {
-    const esHealthy = await searchService.healthCheck();
-    const embeddingReady = embeddingService['isInitialized'];
+    const osHealthy = await searchService.healthCheck();
 
-    const healthy = esHealthy && embeddingReady;
-
-    return reply.code(healthy ? 200 : 503).send({
-      status: healthy ? 'healthy' : 'unhealthy',
-      elasticsearch: esHealthy,
-      embedding: embeddingReady,
+    return reply.code(osHealthy ? 200 : 503).send({
+      status: osHealthy ? 'healthy' : 'unhealthy',
+      opensearch: osHealthy,
+      embeddingService: 'gemini',
     });
   });
 };

@@ -1,20 +1,13 @@
-import { Client } from '@elastic/elasticsearch';
+import { Client } from '@opensearch-project/opensearch';
 
 const client = new Client({
-  node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200',
-  auth: {
-    username: process.env.ELASTICSEARCH_USERNAME || 'elastic',
-    password: process.env.ELASTICSEARCH_PASSWORD || 'changeme',
+  node: process.env.OPENSEARCH_URL || 'http://192.168.189.161:9200',
+  ssl: {
+    rejectUnauthorized: false,
   },
-  // Disable node sniffing to work with single node in development
-  nodeFilter: (node: any) => {
-    // Only use the configured node
-    return true;
-  },
-  requestTimeout: 10000,
 });
 
-const INDEX_NAME = process.env.ELASTICSEARCH_INDEX || 'company-profiles';
+const INDEX_NAME = process.env.OPENSEARCH_INDEX || 'company-profiles';
 
 export interface CompanyEntity {
   profileId: string;
@@ -69,13 +62,13 @@ class ElasticsearchService {
         },
       });
 
-      if (response.hits.hits.length === 0) {
+      if (response.body.hits.hits.length === 0) {
         return null;
       }
 
-      return response.hits.hits[0]._source as CompanyEntity;
+      return response.body.hits.hits[0]._source as CompanyEntity;
     } catch (error) {
-      console.error('Elasticsearch getEntity error:', error);
+      console.error('OpenSearch getEntity error:', error);
       throw new Error(`Failed to fetch entity ${profileId}`);
     }
   }
@@ -95,9 +88,9 @@ class ElasticsearchService {
         size: limit,
       });
 
-      return response.hits.hits.map((hit: any) => hit._source as CompanyEntity);
+      return response.body.hits.hits.map((hit: any) => hit._source as CompanyEntity);
     } catch (error) {
-      console.error('Elasticsearch getAllEntities error:', error);
+      console.error('OpenSearch getAllEntities error:', error);
       throw new Error('Failed to fetch entities');
     }
   }
@@ -111,9 +104,9 @@ class ElasticsearchService {
         index: INDEX_NAME,
       });
 
-      return response.count;
+      return response.body.count;
     } catch (error) {
-      console.error('Elasticsearch count error:', error);
+      console.error('OpenSearch count error:', error);
       throw new Error('Failed to count entities');
     }
   }
@@ -223,9 +216,9 @@ class ElasticsearchService {
         },
       });
 
-      return response.hits.hits.map((hit: any) => hit._source as CompanyEntity);
+      return response.body.hits.hits.map((hit: any) => hit._source as CompanyEntity);
     } catch (error) {
-      console.error('Elasticsearch searchByProfile error:', error);
+      console.error('OpenSearch searchByProfile error:', error);
       throw new Error('Failed to search by profile');
     }
   }

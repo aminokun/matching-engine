@@ -1,29 +1,6 @@
 version: '3.8'
 
 services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: matching-engine-elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=true
-      - xpack.security.enrollment.enabled=false
-      - ELASTIC_PASSWORD=changeme
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
-      - "9300:9300"
-    volumes:
-      - elasticsearch-data:/usr/share/elasticsearch/data
-      - ./elasticsearch/mappings.json:/usr/share/elasticsearch/config/mappings.json
-    networks:
-      - matching-engine-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -u elastic:changeme -f http://localhost:9200/_cluster/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
   backend:
     build:
       context: ./backend
@@ -33,17 +10,12 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - HOST=0.0.0.0
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=changeme
-      - ELASTICSEARCH_INDEX=company-profiles
+      - OPENSEARCH_URL=http://192.168.189.161:9200
+      - OPENSEARCH_INDEX=company-profiles
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LLM_PROVIDER=claude
     ports:
       - "3001:3001"
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
     networks:
       - matching-engine-network
     restart: unless-stopped
@@ -67,7 +39,3 @@ services:
 networks:
   matching-engine-network:
     driver: bridge
-
-volumes:
-  elasticsearch-data:
-    driver: local

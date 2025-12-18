@@ -1,17 +1,16 @@
-import { Client } from '@elastic/elasticsearch';
+import { Client } from '@opensearch-project/opensearch';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
 
 const client = new Client({
-  node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200',
-  auth: {
-    username: process.env.ELASTICSEARCH_USERNAME || 'elastic',
-    password: process.env.ELASTICSEARCH_PASSWORD || 'changeme',
+  node: process.env.OPENSEARCH_URL || 'http://192.168.189.161:9200',
+  ssl: {
+    rejectUnauthorized: false,
   },
 });
 
-const INDEX_NAME = process.env.ELASTICSEARCH_INDEX || 'company-profiles';
+const INDEX_NAME = process.env.OPENSEARCH_INDEX || 'company-profiles';
 
 interface CompanyData {
   profileId: string;
@@ -1084,7 +1083,7 @@ async function seedData() {
       try {
         await client.index({
           index: INDEX_NAME,
-          document: company,
+          body: company,
         });
         successCount++;
         if (successCount % 5 === 0) {
