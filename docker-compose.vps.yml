@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: matching-engine-backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - OPENSEARCH_URL=http://host.docker.internal:9200
+      - OPENSEARCH_INDEX=company-profiles
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LLM_PROVIDER=claude
+    ports:
+      - "0.0.0.0:3001:3001"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${VPS_PUBLIC_URL:-http://localhost}:3001
+    container_name: matching-engine-frontend
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "0.0.0.0:3002:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
