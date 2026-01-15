@@ -1,4 +1,5 @@
 import elasticsearchService, { CompanyEntity } from './elasticsearch.service';
+import { neuralSearch } from './neural-search.service';
 
 export interface MatchWeight {
   parameterName: string;
@@ -140,6 +141,19 @@ export interface SearchMatchesResponse {
 
 class MatchingService {
   /**
+   * Build query text from search criteria for neural search
+   */
+  private buildQueryText(criteria: SearchCriteria): string {
+    const parts: string[] = [];
+    if (criteria.textQuery) parts.push(criteria.textQuery);
+    if (criteria.country) parts.push(`Country: ${criteria.country}`);
+    if (criteria.profileType) parts.push(`Type: ${criteria.profileType}`);
+    if (criteria.marketSegment) parts.push(`Market: ${criteria.marketSegment}`);
+    if (criteria.keywords?.length) parts.push(`Keywords: ${criteria.keywords.join(', ')}`);
+    return parts.join('. ') || 'company';
+  }
+
+  /**
    * Search for entities matching an ideal profile and rank them
    */
   async searchAndRankMatches(
@@ -151,10 +165,19 @@ class MatchingService {
       // Get parameters definition
       const parameters = elasticsearchService.getAvailableParameters();
 
-      // Search for candidates matching the profile
-      const candidates = await elasticsearchService.searchByProfile(
-        request.idealProfile
-      );
+      // Build query text from ideal profile for neural search
+      const queryText = this.buildQueryText(request.idealProfile);
+
+      // Use neural search (OpenSearch calls Gemini via deployed ML model)
+      const searchResults = await neuralSearch(queryText, 100);
+
+      // Convert neural search results to CompanyEntity format
+      const candidates: CompanyEntity[] = searchResults.map(r => ({
+        profileId: r.profileId,
+        companyDetails: r.companyDetails || {},
+        classification: r.classification || {},
+        primaryContact: r.primaryContact,
+      } as CompanyEntity));
 
       // Create ideal entity for matching
       const idealEntity = this.createIdealEntity(request.idealProfile);

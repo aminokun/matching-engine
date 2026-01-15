@@ -13,7 +13,9 @@ services:
       - PORT=3001
       - HOST=0.0.0.0
       - OPENSEARCH_URL=http://host.docker.internal:9200
-      - OPENSEARCH_INDEX=company-profiles
+      - OPENSEARCH_INDEX=${OPENSEARCH_INDEX:-dutch-companies-vector-index}
+      - OPENSEARCH_MODEL_ID=${OPENSEARCH_MODEL_ID}
+      - VECTOR_FIELD=${VECTOR_FIELD:-embedding_vector}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - LLM_PROVIDER=claude
