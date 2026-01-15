@@ -18,6 +18,7 @@ services:
       - VECTOR_FIELD=${VECTOR_FIELD:-embedding_vector}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - NOTION_API_KEY=${NOTION_API_KEY}
       - LLM_PROVIDER=claude
     ports:
       - "0.0.0.0:3001:3001"
