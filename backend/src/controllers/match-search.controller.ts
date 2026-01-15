@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { matchSearchService, IdealProfile } from '@/services/match-search.service';
+import { matchSearchService, IdealProfile } from '../services/match-search.service';
 
 export const matchSearchController = async (req: FastifyRequest, res: FastifyReply) => {
   try {
