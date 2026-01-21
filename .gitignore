@@ -33,3 +33,6 @@ temp/
 # Connector files with credentials
 connector.json
 fix-connector.json
+
+# Claude Code
+.claude/
