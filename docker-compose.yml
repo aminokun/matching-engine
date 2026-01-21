@@ -11,7 +11,7 @@ services:
       - PORT=3001
       - HOST=0.0.0.0
       - OPENSEARCH_URL=http://opensearch-node1:9200
-      - OPENSEARCH_INDEX=company-profiles
+      - OPENSEARCH_INDEX=dutch-companies-vector-index
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NOTION_API_KEY=${NOTION_API_KEY}
       - LLM_PROVIDER=claude
