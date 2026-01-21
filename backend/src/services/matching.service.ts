@@ -1,5 +1,17 @@
 import elasticsearchService, { CompanyEntity } from './elasticsearch.service';
 import { neuralSearch } from './neural-search.service';
+import { geographicService } from './geographic.service';
+import { categoricalService } from './categorical.service';
+import {
+  ICPTemplate,
+  ICPCriterion,
+  ICPMatchResult,
+  ICPMatchRequest,
+  ICPMatchResponse,
+  ParameterMatchResult as ICPParameterMatchResult,
+  ScoringType,
+  getDefaultScoringType,
+} from '../types/icp-template';
 
 export interface MatchWeight {
   parameterName: string;
@@ -462,6 +474,383 @@ class MatchingService {
       value1,
       value2,
       explanation,
+    };
+  }
+
+  /**
+   * Match companies against an ICP template
+   * Uses the new scoring types (geographic, categorical, semantic, numeric, exact)
+   * with proper missing data handling (skip and normalize)
+   */
+  async matchWithICPTemplate(request: ICPMatchRequest): Promise<ICPMatchResponse> {
+    const template = request.template;
+    if (!template) {
+      throw new Error('ICP template is required');
+    }
+
+    const threshold = request.minThreshold || 0;
+    const maxResults = request.maxResults || 100;
+
+    try {
+      // Build query text from ICP criteria for neural search
+      const queryText = this.buildICPQueryText(template.criteria);
+
+      // Use neural search to find candidates
+      const searchResults = await neuralSearch(queryText, maxResults);
+
+      // Convert to CompanyEntity format
+      const candidates: CompanyEntity[] = searchResults.map((r) => ({
+        profileId: r.profileId,
+        companyDetails: r.companyDetails || {},
+        classification: r.classification || {},
+        primaryContact: r.primaryContact,
+      } as CompanyEntity));
+
+      // Match each candidate against ICP
+      const matchResults: ICPMatchResult[] = [];
+
+      for (const candidate of candidates) {
+        const result = await this.matchCompanyToICP(candidate, template);
+        if (result.matchPercentage >= threshold) {
+          matchResults.push(result);
+        }
+      }
+
+      // Sort by match percentage and assign ranks
+      matchResults.sort((a, b) => b.matchPercentage - a.matchPercentage);
+      matchResults.forEach((result, index) => {
+        result.rank = index + 1;
+      });
+
+      return {
+        templateId: template.id,
+        templateName: template.name,
+        totalCompanies: candidates.length,
+        matchesAboveThreshold: matchResults.length,
+        threshold,
+        matches: matchResults.slice(0, maxResults),
+      };
+    } catch (error) {
+      console.error('ICP matching error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Build query text from ICP criteria for neural search
+   */
+  private buildICPQueryText(criteria: ICPCriterion[]): string {
+    const parts: string[] = [];
+
+    for (const criterion of criteria) {
+      const value = Array.isArray(criterion.value)
+        ? criterion.value.join(', ')
+        : String(criterion.value);
+
+      if (criterion.field.includes('country') || criterion.field.includes('city')) {
+        parts.push(`Location: ${value}`);
+      } else if (criterion.field.includes('profileType')) {
+        parts.push(`Type: ${value}`);
+      } else if (criterion.field.includes('marketSegment')) {
+        parts.push(`Market: ${value}`);
+      } else if (criterion.field.includes('keywords')) {
+        parts.push(`Keywords: ${value}`);
+      } else {
+        parts.push(`${criterion.label}: ${value}`);
+      }
+    }
+
+    return parts.join('. ') || 'company';
+  }
+
+  /**
+   * Match a single company against an ICP template
+   */
+  private async matchCompanyToICP(
+    company: CompanyEntity,
+    template: ICPTemplate
+  ): Promise<ICPMatchResult> {
+    const parameterMatches: ICPParameterMatchResult[] = [];
+    const skippedParameters: string[] = [];
+
+    let totalWeightedScore = 0;
+    let totalWeightUsed = 0;
+
+    for (const criterion of template.criteria) {
+      const companyValue = this.getCompanyValue(company, criterion.field);
+
+      // Skip if company is missing this field
+      if (companyValue === null || companyValue === undefined || companyValue === '') {
+        skippedParameters.push(criterion.field);
+        parameterMatches.push({
+          criterionId: criterion.id,
+          field: criterion.field,
+          label: criterion.label,
+          scoringType: criterion.scoringType,
+          weight: criterion.weight,
+          matchPercentage: 0,
+          icpValue: criterion.value,
+          companyValue: null,
+          explanation: `Skipped: Company missing ${criterion.label}`,
+          skipped: true,
+        });
+        continue;
+      }
+
+      // Calculate score based on scoring type
+      const scoreResult = await this.calculateCriterionScore(criterion, companyValue);
+
+      parameterMatches.push({
+        criterionId: criterion.id,
+        field: criterion.field,
+        label: criterion.label,
+        scoringType: criterion.scoringType,
+        weight: criterion.weight,
+        matchPercentage: scoreResult.score,
+        icpValue: criterion.value,
+        companyValue,
+        explanation: scoreResult.explanation,
+        skipped: false,
+      });
+
+      // Add to weighted total
+      totalWeightedScore += scoreResult.score * criterion.weight;
+      totalWeightUsed += criterion.weight;
+    }
+
+    // Normalize by actual weights used (skip missing data handling)
+    const matchPercentage =
+      totalWeightUsed > 0 ? Math.round((totalWeightedScore / totalWeightUsed) * 100) / 100 : 0;
+
+    const totalCriteria = template.criteria.length;
+    const matchedCriteria = totalCriteria - skippedParameters.length;
+    const dataCompleteness =
+      totalCriteria > 0 ? Math.round((matchedCriteria / totalCriteria) * 100) : 0;
+
+    return {
+      companyId: company.profileId,
+      companyName: company.companyDetails?.companyName || 'Unknown',
+      company,
+      matchPercentage,
+      parameterMatches,
+      totalCriteria,
+      matchedCriteria,
+      skippedCriteria: skippedParameters.length,
+      dataCompleteness,
+    };
+  }
+
+  /**
+   * Get a value from a company entity by field path
+   */
+  private getCompanyValue(company: CompanyEntity, fieldPath: string): any {
+    // Handle both full paths and short names
+    const paths = [
+      fieldPath,
+      `companyDetails.${fieldPath}`,
+      `classification.${fieldPath}`,
+      `primaryContact.${fieldPath}`,
+    ];
+
+    for (const path of paths) {
+      const parts = path.split('.');
+      let current: any = company;
+
+      for (const part of parts) {
+        if (current === null || current === undefined) break;
+        current = current[part];
+      }
+
+      if (current !== null && current !== undefined && current !== '') {
+        return current;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Calculate score for a criterion based on its scoring type
+   */
+  private async calculateCriterionScore(
+    criterion: ICPCriterion,
+    companyValue: any
+  ): Promise<{ score: number; explanation: string }> {
+    const icpValue = criterion.value;
+    const scoringType = criterion.scoringType || getDefaultScoringType(criterion.field);
+
+    switch (scoringType) {
+      case 'geographic':
+        return this.calculateGeographicScore(String(icpValue), String(companyValue));
+
+      case 'categorical':
+        return this.calculateCategoricalScore(
+          String(icpValue),
+          String(companyValue),
+          criterion.field
+        );
+
+      case 'numeric':
+        return this.calculateNumericScore(
+          Number(icpValue) || 0,
+          Number(companyValue) || 0,
+          criterion.config
+        );
+
+      case 'exact':
+        return this.calculateExactScore(icpValue, companyValue);
+
+      case 'semantic':
+      default:
+        return this.calculateSemanticScore(icpValue, companyValue);
+    }
+  }
+
+  /**
+   * Geographic scoring using distance-based calculation
+   */
+  private calculateGeographicScore(
+    icpValue: string,
+    companyValue: string
+  ): { score: number; explanation: string } {
+    const result = geographicService.calculateProximityScore(icpValue, companyValue);
+    return {
+      score: result.score,
+      explanation: result.explanation,
+    };
+  }
+
+  /**
+   * Categorical scoring using similarity matrices
+   */
+  private calculateCategoricalScore(
+    icpValue: string,
+    companyValue: string,
+    field: string
+  ): { score: number; explanation: string } {
+    if (field.includes('profileType')) {
+      const result = categoricalService.getProfileTypeSimilarity(icpValue, companyValue);
+      return { score: result.score, explanation: result.explanation };
+    } else if (field.includes('marketSegment')) {
+      const result = categoricalService.getMarketSegmentSimilarity(icpValue, companyValue);
+      return { score: result.score, explanation: result.explanation };
+    }
+
+    // Default categorical comparison
+    const match = icpValue.toLowerCase() === companyValue.toLowerCase();
+    return {
+      score: match ? 100 : 30,
+      explanation: match ? `Exact match: ${icpValue}` : `${icpValue} ↔ ${companyValue}: 30%`,
+    };
+  }
+
+  /**
+   * Numeric scoring based on proximity
+   */
+  private calculateNumericScore(
+    icpValue: number,
+    companyValue: number,
+    config?: { tolerance?: number; minValue?: number; maxValue?: number }
+  ): { score: number; explanation: string } {
+    if (icpValue === 0 && companyValue === 0) {
+      return { score: 100, explanation: 'Both values are 0' };
+    }
+    if (icpValue === 0 || companyValue === 0) {
+      return { score: 0, explanation: 'One value is 0' };
+    }
+
+    // Use tolerance if configured
+    if (config?.tolerance) {
+      const lowerBound = icpValue * (1 - config.tolerance);
+      const upperBound = icpValue * (1 + config.tolerance);
+      if (companyValue >= lowerBound && companyValue <= upperBound) {
+        return {
+          score: 100,
+          explanation: `${companyValue} is within ±${config.tolerance * 100}% of ${icpValue}`,
+        };
+      }
+    }
+
+    // Calculate ratio-based similarity
+    const max = Math.max(icpValue, companyValue);
+    const min = Math.min(icpValue, companyValue);
+    const score = Math.round((min / max) * 100);
+
+    return {
+      score,
+      explanation: `Numeric similarity: ${companyValue} vs ${icpValue} = ${score}%`,
+    };
+  }
+
+  /**
+   * Exact matching (100% or 0%)
+   */
+  private calculateExactScore(
+    icpValue: any,
+    companyValue: any
+  ): { score: number; explanation: string } {
+    const match = String(icpValue).toLowerCase() === String(companyValue).toLowerCase();
+    return {
+      score: match ? 100 : 0,
+      explanation: match
+        ? `Exact match: "${icpValue}"`
+        : `No match: "${icpValue}" ≠ "${companyValue}"`,
+    };
+  }
+
+  /**
+   * Semantic/text similarity scoring
+   */
+  private calculateSemanticScore(
+    icpValue: any,
+    companyValue: any
+  ): { score: number; explanation: string } {
+    // Handle arrays (keywords, services)
+    if (Array.isArray(icpValue) && Array.isArray(companyValue)) {
+      const score = arrayIntersection(icpValue, companyValue);
+      const intersection = icpValue.filter((item) =>
+        companyValue.some(
+          (item2) => String(item).toLowerCase() === String(item2).toLowerCase()
+        )
+      );
+      return {
+        score: Math.round(score),
+        explanation: `Array match: [${intersection.join(', ')}] = ${Math.round(score)}%`,
+      };
+    }
+
+    // Handle array vs string
+    if (Array.isArray(icpValue)) {
+      const matches = icpValue.filter(
+        (item) =>
+          String(companyValue).toLowerCase().includes(String(item).toLowerCase()) ||
+          String(item).toLowerCase().includes(String(companyValue).toLowerCase())
+      );
+      const score = (matches.length / icpValue.length) * 100;
+      return {
+        score: Math.round(score),
+        explanation: `Matched ${matches.length}/${icpValue.length} keywords = ${Math.round(score)}%`,
+      };
+    }
+
+    if (Array.isArray(companyValue)) {
+      const matches = companyValue.filter(
+        (item) =>
+          String(icpValue).toLowerCase().includes(String(item).toLowerCase()) ||
+          String(item).toLowerCase().includes(String(icpValue).toLowerCase())
+      );
+      const score = (matches.length / companyValue.length) * 100;
+      return {
+        score: Math.round(score),
+        explanation: `Matched ${matches.length}/${companyValue.length} values = ${Math.round(score)}%`,
+      };
+    }
+
+    // String similarity
+    const score = textSimilarity(String(icpValue), String(companyValue));
+    return {
+      score: Math.round(score),
+      explanation: `Text similarity: "${icpValue}" vs "${companyValue}" = ${Math.round(score)}%`,
     };
   }
 }

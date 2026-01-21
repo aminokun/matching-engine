@@ -5,6 +5,7 @@ import searchRoute from './routes/search.route';
 import matchSearchRoute from './routes/match-search.route';
 import matchRoute from './routes/match.route';
 import notionRoute from './routes/notion.route';
+import icpRoute from './routes/icp.route';
 
 const fastify = Fastify({
   logger: {
@@ -26,6 +27,7 @@ fastify.register(searchRoute, { prefix: '/api' });
 fastify.register(matchSearchRoute, { prefix: '/api' });
 fastify.register(matchRoute, { prefix: '/api' });
 fastify.register(notionRoute, { prefix: '/api' });
+fastify.register(icpRoute, { prefix: '/api/icp' });
 
 // Health check
 fastify.get('/health', async () => {
