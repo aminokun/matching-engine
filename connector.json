@@ -5,13 +5,15 @@
   "protocol": "http",
   "parameters": {
     "endpoint": "generativelanguage.googleapis.com",
-    "model": "text-embedding-004",
+    "model": "text-embedding-004"
+  },
+  "credential": {
     "key": "AIzaSyB-gOM5aCUE1gTtv0vImpF1IUepyOzBFiU"
   },
   "actions": [{
     "action_type": "PREDICT",
     "method": "POST",
-    "url": "https://${parameters.endpoint}/v1beta/models/${parameters.model}:embedContent?key=${parameters.key}",
+    "url": "https://${parameters.endpoint}/v1beta/models/${parameters.model}:embedContent?key=${credential.key}",
     "headers": {"Content-Type": "application/json"},
     "request_body": "{ \"content\": { \"parts\": [{ \"text\": \"${parameters.text}\" }] } }",
     "pre_process_function": "def text = null; if (params.text_docs != null && params.text_docs.size() > 0) { text = params.text_docs[0]; } else if (params.input != null && params.input.size() > 0) { text = params.input[0]; } if (text == null) { return '{\"parameters\":{}}'; } def raw = text.toString(); char BS = (char) 92; char QUOTE = (char) 34; StringBuilder escaped = new StringBuilder(); for (int i = 0; i < raw.length(); i++) { char c = raw.charAt(i); if (c == QUOTE) { escaped.append(BS); escaped.append(QUOTE); } else if (c == BS) { escaped.append(BS); escaped.append(BS); } else if (c == 10 || c == 13) { escaped.append((char)32); } else { escaped.append(c); } } return '{\"parameters\":{\"text\":\"' + escaped.toString() + '\"}}';",
