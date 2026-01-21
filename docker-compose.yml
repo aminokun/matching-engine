@@ -10,7 +10,7 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - HOST=0.0.0.0
-      - OPENSEARCH_URL=http://192.168.189.161:9200
+      - OPENSEARCH_URL=http://opensearch-node1:9200
       - OPENSEARCH_INDEX=company-profiles
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LLM_PROVIDER=claude

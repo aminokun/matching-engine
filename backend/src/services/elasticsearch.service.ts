@@ -66,7 +66,9 @@ class ElasticsearchService {
         return null;
       }
 
-      return response.body.hits.hits[0]._source as CompanyEntity;
+      const source = response.body.hits.hits[0]._source;
+      // Handle VPS data structure with payload wrapper
+      return (source.payload || source) as CompanyEntity;
     } catch (error) {
       console.error('OpenSearch getEntity error:', error);
       throw new Error(`Failed to fetch entity ${profileId}`);
@@ -88,7 +90,11 @@ class ElasticsearchService {
         size: limit,
       });
 
-      return response.body.hits.hits.map((hit: any) => hit._source as CompanyEntity);
+      return response.body.hits.hits.map((hit: any) => {
+        const source = hit._source;
+        // Handle both structures: with payload wrapper (VPS) or direct
+        return (source.payload || source) as CompanyEntity;
+      });
     } catch (error) {
       console.error('OpenSearch getAllEntities error:', error);
       throw new Error('Failed to fetch entities');
@@ -216,7 +222,11 @@ class ElasticsearchService {
         },
       });
 
-      return response.body.hits.hits.map((hit: any) => hit._source as CompanyEntity);
+      return response.body.hits.hits.map((hit: any) => {
+        const source = hit._source;
+        // Handle both structures: with payload wrapper (VPS) or direct
+        return (source.payload || source) as CompanyEntity;
+      });
     } catch (error) {
       console.error('OpenSearch searchByProfile error:', error);
       throw new Error('Failed to search by profile');
