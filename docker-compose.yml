@@ -26,10 +26,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://37.60.255.128:3001
     container_name: matching-engine-frontend
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://37.60.255.128:3001
     ports:
       - "3002:3000"
     depends_on:
