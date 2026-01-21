@@ -3,7 +3,8 @@
 import React, { useState, useMemo } from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import * as Checkbox from '@radix-ui/react-checkbox';
-import { ChevronDownIcon, CheckIcon } from 'lucide-react';
+import { ChevronDownIcon, CheckIcon, InfoIcon } from 'lucide-react';
+import { ICPMatchResult as ICPMatchResultType, ICPMatchResponse as ICPMatchResponseType } from '../types';
 
 export interface ParameterMatch {
   parameterName: string;
@@ -13,6 +14,8 @@ export interface ParameterMatch {
   value1: string | number | string[];
   value2: string | number | string[];
   explanation: string;
+  skipped?: boolean;
+  weight?: number;
 }
 
 export interface SearchMatchResult {
@@ -34,6 +37,9 @@ export interface SearchMatchResult {
   matchPercentage: number;
   parameterMatches: ParameterMatch[];
   rank: number;
+  dataCompleteness?: number;
+  matchedCriteria?: number;
+  totalCriteria?: number;
 }
 
 export interface SearchMatchesResponse {
@@ -44,14 +50,27 @@ export interface SearchMatchesResponse {
 }
 
 export interface MatchResultsListProps {
-  data: SearchMatchesResponse;
+  data: SearchMatchesResponse | ICPMatchResponseType;
   onSelectionsChange?: (selectedIds: string[]) => void;
+  isICPResult?: boolean;
 }
 
-export default function MatchResultsList({ data, onSelectionsChange }: MatchResultsListProps) {
+export default function MatchResultsList({ data, onSelectionsChange, isICPResult }: MatchResultsListProps) {
   const [threshold, setThreshold] = useState(data.threshold || 0);
   const [expandedMatches, setExpandedMatches] = useState<Set<string>>(new Set());
   const [selectedMatches, setSelectedMatches] = useState<Set<string>>(new Set());
+
+  // Check if this is an ICP result
+  const checkIsICP = (data: SearchMatchesResponse | ICPMatchResponseType): data is ICPMatchResponseType => {
+    return 'templateName' in data;
+  };
+
+  const isICP = isICPResult ?? checkIsICP(data);
+
+  // Type guard for SearchMatchResult
+  const isSearchMatchResult = (match: any): match is SearchMatchResult => {
+    return 'entity' in match;
+  };
 
   // Filter matches based on threshold
   const filteredMatches = useMemo(() => {
@@ -86,13 +105,45 @@ export default function MatchResultsList({ data, onSelectionsChange }: MatchResu
     onSelectionsChange?.(Array.from(newSelected));
   };
 
+  // Get profile ID from match (handles both SearchMatchResult and ICPMatchResult)
+  const getProfileId = (match: SearchMatchResult | ICPMatchResultType): string => {
+    if (isSearchMatchResult(match)) {
+      return match.entity.profileId;
+    }
+    return match.companyId;
+  };
+
+  // Get company name from match
+  const getCompanyName = (match: SearchMatchResult | ICPMatchResultType): string => {
+    if (isSearchMatchResult(match)) {
+      return match.entity.companyDetails.companyName;
+    }
+    return match.companyName;
+  };
+
+  // Get company details from match
+  const getCompanyDetails = (match: SearchMatchResult | ICPMatchResultType) => {
+    if (isSearchMatchResult(match)) {
+      return match.entity.companyDetails;
+    }
+    return match.company?.companyDetails || {};
+  };
+
+  // Get classification from match
+  const getClassification = (match: SearchMatchResult | ICPMatchResultType) => {
+    if (isSearchMatchResult(match)) {
+      return match.entity.classification;
+    }
+    return match.company?.classification || {};
+  };
+
   // Toggle all matches
   const toggleAllMatches = () => {
     if (selectedMatches.size === filteredMatches.length) {
       setSelectedMatches(new Set());
       onSelectionsChange?.([]);
     } else {
-      const allIds = new Set(filteredMatches.map((m) => m.entity.profileId));
+      const allIds = new Set(filteredMatches.map((m) => getProfileId(m)));
       setSelectedMatches(allIds);
       onSelectionsChange?.(Array.from(allIds));
     }
@@ -120,13 +171,32 @@ export default function MatchResultsList({ data, onSelectionsChange }: MatchResu
     return String(value);
   };
 
+  // Helper to normalize parameter display properties
+  const getParamDisplay = (param: any) => {
+    // Check if it's an ICP parameter or legacy parameter
+    const isICPParam = 'criterionId' in param || 'field' in param;
+
+    return {
+      key: isICPParam ? param.criterionId || param.field : param.parameterName,
+      label: isICPParam ? param.label || param.field : param.parameterLabel,
+      weight: param.weight,
+      explanation: param.explanation,
+      matchPercentage: param.matchPercentage,
+      skipped: param.skipped,
+      value1: isICPParam ? param.icpValue : param.value1,
+      value2: isICPParam ? param.companyValue : param.value2,
+    };
+  };
+
   return (
     <div className="w-full space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-semibold text-gray-800 mb-2">Match Results</h2>
+        <h2 className="text-xl font-semibold text-gray-800 mb-2">
+          {isICP ? 'ICP Match Results' : 'Match Results'}
+        </h2>
         <p className="text-sm text-gray-600">
-          Found <span className="font-semibold">{data.totalMatches}</span> candidates,{' '}
+          Found <span className="font-semibold">{isICP ? (data as ICPMatchResponseType).totalCompanies : (data as SearchMatchesResponse).totalMatches}</span> candidates,{' '}
           <span className="font-semibold">{filteredMatches.length}</span> above{' '}
           <span className="font-semibold">{threshold}%</span> threshold
         </p>
@@ -189,17 +259,25 @@ export default function MatchResultsList({ data, onSelectionsChange }: MatchResu
       <div className="space-y-3 max-h-96 overflow-y-auto">
         {filteredMatches.length > 0 ? (
           filteredMatches.map((match) => {
-            const isExpanded = expandedMatches.has(match.entity.profileId);
-            const isSelected = selectedMatches.has(match.entity.profileId);
+            const profileId = getProfileId(match);
+            const companyName = getCompanyName(match);
+            const companyDetails = getCompanyDetails(match);
+            const classification = getClassification(match);
+
+            const isExpanded = expandedMatches.has(profileId);
+            const isSelected = selectedMatches.has(profileId);
+            const dataCompleteness = match.dataCompleteness || 100;
+            const matchedCriteria = match.matchedCriteria ?? match.parameterMatches?.length ?? 0;
+            const totalCriteria = match.totalCriteria ?? match.parameterMatches?.length ?? 0;
 
             return (
-              <div key={match.entity.profileId} className="border border-gray-200 rounded-lg overflow-hidden">
+              <div key={profileId} className="border border-gray-200 rounded-lg overflow-hidden">
                 {/* Match Row */}
                 <div className="p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors">
                   {/* Checkbox */}
                   <Checkbox.Root
                     checked={isSelected}
-                    onCheckedChange={() => toggleMatchSelection(match.entity.profileId)}
+                    onCheckedChange={() => toggleMatchSelection(profileId)}
                     className="flex h-5 w-5 appearance-none items-center justify-center rounded border border-gray-300 bg-white hover:bg-gray-50 flex-shrink-0"
                   >
                     <Checkbox.Indicator className="text-blue-600">
@@ -210,14 +288,24 @@ export default function MatchResultsList({ data, onSelectionsChange }: MatchResu
                   {/* Company Info */}
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-800 truncate">
-                      #{match.rank} - {match.entity.companyDetails.companyName}
+                      #{match.rank} - {companyName}
                     </h3>
                     <div className="grid grid-cols-2 gap-2 mt-1 text-xs text-gray-600">
-                      <p>Country: {match.entity.companyDetails.country}</p>
-                      <p>Type: {match.entity.classification.profileType}</p>
-                      <p>City: {match.entity.companyDetails.city}</p>
-                      <p>Segment: {match.entity.classification.marketSegment}</p>
+                      <p>Country: {companyDetails.country}</p>
+                      <p>Type: {classification.profileType}</p>
+                      <p>City: {companyDetails.city}</p>
+                      <p>Segment: {classification.marketSegment}</p>
                     </div>
+                    {/* Data Completeness Indicator */}
+                    {(isICP || dataCompleteness < 100) && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <InfoIcon size={14} className="text-gray-400" />
+                        <span className="text-xs text-gray-500">
+                          Matched on {matchedCriteria}/{totalCriteria} criteria
+                          {dataCompleteness < 100 && ` (${dataCompleteness}% complete)`}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Match Percentage */}
@@ -240,7 +328,7 @@ export default function MatchResultsList({ data, onSelectionsChange }: MatchResu
                       </div>
                     </div>
                     <button
-                      onClick={() => toggleMatchExpansion(match.entity.profileId)}
+                      onClick={() => toggleMatchExpansion(profileId)}
                       className="p-1 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
                     >
                       <ChevronDownIcon
@@ -257,28 +345,46 @@ export default function MatchResultsList({ data, onSelectionsChange }: MatchResu
                     <div>
                       <h4 className="text-sm font-semibold text-gray-700 mb-3">Parameter Breakdown</h4>
                       <div className="space-y-2">
-                        {match.parameterMatches.map((param) => (
-                          <div key={param.parameterName} className="p-3 bg-white rounded border border-gray-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <div>
-                                <p className="text-sm font-medium text-gray-800">{param.parameterLabel}</p>
-                                <p className="text-xs text-gray-600">{param.explanation}</p>
+                        {match.parameterMatches.map((param) => {
+                          const display = getParamDisplay(param);
+                          return (
+                            <div
+                              key={display.key}
+                              className={`p-3 rounded border ${
+                                display.skipped
+                                  ? 'bg-gray-100 border-gray-300 opacity-70'
+                                  : 'bg-white border-gray-200'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">
+                                    {display.label}
+                                    {display.weight && ` (weight: ${display.weight})`}
+                                  </p>
+                                  <p className="text-xs text-gray-600">{display.explanation}</p>
+                                  {display.skipped && (
+                                    <p className="text-xs text-gray-400 italic">Skipped: No data available</p>
+                                  )}
+                                </div>
+                                <div className={`text-lg font-bold ${getMatchColor(display.matchPercentage)}`}>
+                                  {Math.round(display.matchPercentage)}%
+                                </div>
                               </div>
-                              <div className={`text-lg font-bold ${getMatchColor(param.matchPercentage)}`}>
-                                {Math.round(param.matchPercentage)}%
-                              </div>
+                              {!display.skipped && (
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded">
+                                    Search: {formatValue(display.value1)}
+                                  </span>
+                                  <span className="text-gray-400">→</span>
+                                  <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded">
+                                    Company: {formatValue(display.value2)}
+                                  </span>
+                                </div>
+                              )}
                             </div>
-                            <div className="flex items-center gap-2 text-xs">
-                              <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded">
-                                Search: {formatValue(param.value1)}
-                              </span>
-                              <span className="text-gray-400">→</span>
-                              <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded">
-                                Company: {formatValue(param.value2)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
