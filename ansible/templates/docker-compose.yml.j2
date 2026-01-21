@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  backend:
+    image: {{ backend_image_name }}:latest
+    container_name: {{ backend_container_name }}
+    restart: unless-stopped
+    ports:
+      - "{{ backend_port }}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+    volumes:
+      - {{ logs_dir }}:/app/logs
+    networks:
+      - {{ docker_network }}
+      - {{ opensearch_network }}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/search/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    image: {{ frontend_image_name }}:latest
+    container_name: {{ frontend_container_name }}
+    restart: unless-stopped
+    ports:
+      - "{{ frontend_port }}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    networks:
+      - {{ docker_network }}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  {{ docker_network }}:
+    external: true
+  {{ opensearch_network }}:
+    external: true

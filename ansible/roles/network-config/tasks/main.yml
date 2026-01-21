@@ -1,0 +1,27 @@
+---
+# Network Configuration Role
+# Creates Docker networks for the application
+
+- name: Display network configuration start
+  debug:
+    msg: "Configuring Docker networks..."
+
+- name: Create matching-engine Docker network
+  docker_network:
+    name: "{{ docker_network }}"
+    state: present
+    driver: bridge
+    ipam_config:
+      - subnet: 172.20.0.0/16
+
+- name: Connect OpenSearch to matching-engine network
+  shell: docker network connect {{ docker_network }} {{ opensearch_container_name }}
+  register: opensearch_network_connect
+  failed_when: false
+  changed_when: opensearch_network_connect.rc == 0
+
+- name: Display network information
+  debug:
+    msg:
+      - "Docker network '{{ docker_network }}' created"
+      - "OpenSearch connected to {{ docker_network }}"

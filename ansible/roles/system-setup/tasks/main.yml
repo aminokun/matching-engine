@@ -1,0 +1,346 @@
+---
+# System Setup Role
+# Installs Docker, Java, and other required dependencies
+
+- name: Display system setup start
+  debug:
+    msg: "Starting system setup..."
+
+# ============================================================================
+# DETECT OS TYPE
+# ============================================================================
+- name: Detect OS family
+  set_fact:
+    os_family: "{{ ansible_os_family }}"
+
+- name: Detect if Debian/Ubuntu
+  set_fact:
+    is_debian: "{{ ansible_os_family == 'Debian' }}"
+
+- name: Detect if RHEL/CentOS/Rocky
+  set_fact:
+    is_rhel: "{{ ansible_os_family == 'RedHat' }}"
+
+# ============================================================================
+# INSTALL JAVA (Required for OpenSearch)
+# ============================================================================
+- name: Install Java 17 on Debian/Ubuntu
+  apt:
+    name:
+      - openjdk-17-jre-headless
+    state: present
+    update_cache: yes
+  when: is_debian
+  retries: 3
+  delay: 5
+
+- name: Install Java 17 on RHEL/CentOS/Rocky
+  yum:
+    name:
+      - java-17-openjdk
+    state: present
+  when: is_rhel
+  retries: 3
+  delay: 5
+
+- name: Set JAVA_HOME environment variable
+  lineinfile:
+    path: /etc/environment
+    line: 'JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64'
+    create: yes
+  when: is_debian
+
+- name: Set JAVA_HOME environment variable (RHEL)
+  lineinfile:
+    path: /etc/environment
+    line: 'JAVA_HOME=/usr/lib/jvm/jre-17'
+    create: yes
+  when: is_rhel
+
+# ============================================================================
+# INSTALL DOCKER
+# ============================================================================
+- name: Update apt cache (Debian/Ubuntu)
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: is_debian
+
+- name: Install Docker dependencies (Debian/Ubuntu)
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - python3-pip
+      - python3-setuptools
+    state: present
+  when: is_debian
+
+- name: Add Docker GPG key (Debian/Ubuntu)
+  apt_key:
+    url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
+    state: present
+  when: is_debian
+
+- name: Add Docker repository (Debian/Ubuntu)
+  apt_repository:
+    repo: "deb https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+    state: present
+  when: is_debian
+
+- name: Install Docker (Debian/Ubuntu)
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+  when: is_debian
+  notify: restart docker
+
+- name: Install Docker on RHEL/CentOS/Rocky
+  yum:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+  when: is_rhel
+  notify: restart docker
+
+# ============================================================================
+# INSTALL DOCKER COMPOSE (STANDALONE)
+# ============================================================================
+- name: Download Docker Compose
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"
+    dest: /usr/local/bin/docker-compose
+    mode: '0755'
+  register: docker_compose_download
+  until: docker_compose_download is succeeded
+  retries: 3
+  delay: 5
+
+- name: Verify Docker Compose installation
+  command: docker-compose --version
+  register: docker_compose_version_check
+  changed_when: false
+
+- name: Display Docker Compose version
+  debug:
+    msg: "{{ docker_compose_version_check.stdout }}"
+
+# ============================================================================
+# CONFIGURE DOCKER DAEMON
+# ============================================================================
+- name: Create Docker daemon configuration directory
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+- name: Configure Docker daemon
+  copy:
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "live-restore": true,
+        "default-ulimits": {
+          "nofile": {
+            "Name": "nofile",
+            "Hard": 64000,
+            "Soft": 64000
+          }
+        }
+      }
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+  notify: restart docker
+
+# ============================================================================
+# ENABLE AND START DOCKER
+# ============================================================================
+- name: Ensure Docker is started and enabled
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Ensure deployment user can use Docker
+  user:
+    name: "{{ deployment_user }}"
+    groups: docker
+    append: yes
+  when: deployment_user != "root"
+
+# ============================================================================
+# INSTALL ADDITIONAL UTILITIES
+# ============================================================================
+- name: Install additional utilities (Debian/Ubuntu)
+  apt:
+    name:
+      - curl
+      - jq
+      - git
+      - vim
+      - htop
+    state: present
+  when: is_debian
+
+- name: Install additional utilities (RHEL/CentOS/Rocky)
+  yum:
+    name:
+      - curl
+      - jq
+      - git
+      - vim
+      - htop
+    state: present
+  when: is_rhel
+
+# ============================================================================
+# CONFIGURE FIREWALL (UFW for Debian/Ubuntu)
+# ============================================================================
+- name: Configure UFW firewall (Debian/Ubuntu)
+  block:
+    - name: Install UFW
+      apt:
+        name: ufw
+        state: present
+
+    - name: Reset UFW to defaults
+      ufw:
+        state: reset
+
+    - name: Set UFW default policies
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: Allow SSH through UFW
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Allow required ports through UFW
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ allowed_ports }}"
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+  when:
+    - enable_firewall
+    - ufw_enabled
+    - is_debian
+
+# ============================================================================
+# CONFIGURE FIREWALL (FIREWALLD for RHEL/CentOS/Rocky)
+# ============================================================================
+- name: Configure firewalld (RHEL/CentOS/Rocky)
+  block:
+    - name: Install firewalld
+      yum:
+        name: firewalld
+        state: present
+
+    - name: Start and enable firewalld
+      systemd:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Allow required ports through firewalld
+      firewalld:
+        port: "{{ item }}/tcp"
+        permanent: yes
+        state: enabled
+      loop: "{{ allowed_ports }}"
+
+    - name: Reload firewalld
+      systemd:
+        name: firewalld
+        state: reloaded
+  when:
+    - enable_firewall
+    - firewalld_enabled
+    - is_rhel
+
+# ============================================================================
+# CREATE DEPLOYMENT DIRECTORIES
+# ============================================================================
+- name: Create deployment directory
+  file:
+    path: "{{ deploy_path }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ deployment_user }}"
+    group: "{{ deployment_user }}"
+  when: deployment_user != "root"
+
+- name: Create logs directory
+  file:
+    path: "{{ logs_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ deployment_user }}"
+    group: "{{ deployment_user }}"
+  when: deployment_user != "root"
+
+# ============================================================================
+# SET UP LOG ROTATION
+# ============================================================================
+- name: Configure log rotation for Docker containers
+  copy:
+    content: |
+      {{ logs_dir }}/*.log {
+          daily
+          rotate {{ log_rotation_days }}
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 0644 {{ deployment_user }} {{ deployment_user }}
+      }
+    dest: /etc/logrotate.d/matching-engine
+    mode: '0644'
+  when: log_rotation_enabled
+
+# ============================================================================
+# VERIFY INSTALLATIONS
+# ============================================================================
+- name: Verify Docker installation
+  command: docker --version
+  register: docker_version
+  changed_when: false
+
+- name: Verify Java installation
+  command: java -version
+  register: java_version
+  changed_when: false
+
+- name: Display system setup complete
+  debug:
+    msg:
+      - "System setup complete!"
+      - "Docker: {{ docker_version.stdout }}"
+      - "Java: {{ java_version.stderr_lines[0] }}"

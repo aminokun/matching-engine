@@ -1,0 +1,8 @@
+---
+# Handlers for system-setup role
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes

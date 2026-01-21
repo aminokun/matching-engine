@@ -1,0 +1,223 @@
+---
+# Application Deployment Role
+# Deploys the matching-engine application (backend + frontend)
+
+- name: Display application deployment start
+  debug:
+    msg: "Starting application deployment..."
+
+# ============================================================================
+# CLONE OR COPY APPLICATION CODE
+# ============================================================================
+- name: Clone application repository
+  git:
+    repo: "{{ git_repo }}"
+    dest: "{{ deploy_path }}/app"
+    version: "{{ git_branch }}"
+    force: yes
+  when: git_repo != ""
+  register: git_clone
+
+- name: Create app directory if not using git
+  file:
+    path: "{{ deploy_path }}/app"
+    state: directory
+    mode: '0755'
+  when: git_repo == ""
+
+- name: Display deployment method
+  debug:
+    msg: "Using {{ 'git clone from ' + git_repo if git_repo != '' else 'local/copy method' }}"
+
+# ============================================================================
+# COPY LOCAL APPLICATION FILES IF IN LOCAL MODE
+# ============================================================================
+- name: Check if local app files exist (for development mode)
+  local_action:
+    module: stat
+    path: "{{ playbook_dir }}/../backend"
+  register: local_backend
+  become: no
+
+- name: Copy local backend files (development mode)
+  synchronize:
+    src: "{{ playbook_dir }}/../backend/"
+    dest: "{{ deploy_path }}/app/backend/"
+    delete: yes
+  when:
+    - git_repo == ""
+    - local_backend.stat.exists
+  delegate_to: localhost
+
+- name: Copy local frontend files (development mode)
+  synchronize:
+    src: "{{ playbook_dir }}/../frontend/"
+    dest: "{{ deploy_path }}/app/frontend/"
+    delete: yes
+  when:
+    - git_repo == ""
+    - local_backend.stat.exists
+  delegate_to: localhost
+
+# ============================================================================
+# GENERATE ENVIRONMENT FILES
+# ============================================================================
+- name: Create backend environment file
+  template:
+    src: ../templates/.env.backend.j2
+    dest: "{{ deploy_path }}/app/backend/.env"
+    mode: '0600'
+  vars:
+    anthropic_key: "{{ anthropic_api_key }}"
+    gemini_key: "{{ gemini_api_key }}"
+    notion_key: "{{ notion_api_key }}"
+
+- name: Create frontend environment file for build
+  template:
+    src: ../templates/.env.frontend.j2
+    dest: "{{ deploy_path }}/app/frontend/.env.local"
+    mode: '0600'
+  vars:
+    api_url: "{{ api_url }}"
+
+# ============================================================================
+# CREATE DOCKER-COMPOSE FILE
+# ============================================================================
+- name: Create docker-compose.yml from template
+  template:
+    src: ../templates/docker-compose.yml.j2
+    dest: "{{ deploy_path }}/docker-compose.yml"
+    mode: '0644'
+
+# ============================================================================
+# BUILD DOCKER IMAGES
+# ============================================================================
+- name: Build backend Docker image
+  docker_image:
+    name: "{{ backend_image_name }}:latest"
+    build:
+      path: "{{ deploy_path }}/app/backend"
+      dockerfile: Dockerfile
+    source: build
+    state: present
+  register: backend_build
+  until: backend_build is succeeded
+  retries: 2
+  delay: 10
+
+- name: Build frontend Docker image
+  docker_image:
+    name: "{{ frontend_image_name }}:latest"
+    build:
+      path: "{{ deploy_path }}/app/frontend"
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "{{ api_url }}"
+    source: build
+    state: present
+  register: frontend_build
+  until: frontend_build is succeeded
+  retries: 2
+  delay: 10
+
+# ============================================================================
+# STOP EXISTING CONTAINERS IF THEY EXIST
+# ============================================================================
+- name: Check if backend container exists
+  shell: docker ps -a --filter "name={{ backend_container_name }}" --format "{{ '{{.Names}}' }}"
+  register: backend_container_exists
+  changed_when: false
+  failed_when: false
+
+- name: Stop and remove existing backend container
+  docker_container:
+    name: "{{ backend_container_name }}"
+    state: absent
+    force_kill: yes
+  when: backend_container_exists.stdout == backend_container_name
+
+- name: Check if frontend container exists
+  shell: docker ps -a --filter "name={{ frontend_container_name }}" --format "{{ '{{.Names}}' }}"
+  register: frontend_container_exists
+  changed_when: false
+  failed_when: false
+
+- name: Stop and remove existing frontend container
+  docker_container:
+    name: "{{ frontend_container_name }}"
+    state: absent
+    force_kill: yes
+  when: frontend_container_exists.stdout == frontend_container_name
+
+# ============================================================================
+# START APPLICATION CONTAINERS
+# ============================================================================
+- name: Start backend container
+  docker_container:
+    name: "{{ backend_container_name }}"
+    image: "{{ backend_image_name }}:latest"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ backend_port }}:3001"
+    env:
+      NODE_ENV: production
+      PORT: "3001"
+    networks:
+      - name: "{{ docker_network }}"
+      - name: "{{ opensearch_network }}"
+    networks_cli_compatible: yes
+    volumes:
+      - "{{ logs_dir }}:/app/logs"
+    comparisons:
+      env: strict
+  register: backend_start
+
+- name: Start frontend container
+  docker_container:
+    name: "{{ frontend_container_name }}"
+    image: "{{ frontend_image_name }}:latest"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ frontend_port }}:3000"
+    env:
+      NODE_ENV: production
+      PORT: "3000"
+    networks:
+      - name: "{{ docker_network }}"
+    networks_cli_compatible: yes
+    comparisons:
+      env: strict
+  register: frontend_start
+
+# ============================================================================
+# VERIFY CONTAINERS ARE RUNNING
+# ============================================================================
+- name: Wait for backend to be healthy
+  uri:
+    url: "http://localhost:{{ backend_port }}/api/search/health"
+    method: GET
+    status_code: [200, 404]
+  register: backend_health
+  until: backend_health.status == 200
+  retries: 30
+  delay: 5
+  when: not skip_health_check
+
+- name: Wait for frontend to be accessible
+  uri:
+    url: "http://localhost:{{ frontend_port }}/"
+    method: GET
+    status_code: [200, 404]
+  register: frontend_health
+  until: frontend_health.status in [200, 404]
+  retries: 30
+  delay: 5
+  when: not skip_health_check
+
+- name: Display container status
+  debug:
+    msg:
+      - "Backend: http://localhost:{{ backend_port }} - Running"
+      - "Frontend: http://localhost:{{ frontend_port }} - Running"

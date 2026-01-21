@@ -1,0 +1,191 @@
+---
+# OpenSearch Initialization Role
+# Initializes OpenSearch with index, mappings, and sample data
+
+- name: Display OpenSearch initialization start
+  debug:
+    msg: "Initializing OpenSearch..."
+
+# ============================================================================
+# CREATE INDEX WITH MAPPINGS
+# ============================================================================
+- name: Check if index exists
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/{{ opensearch_index }}"
+    method: HEAD
+    status_code: [200, 404]
+  register: index_exists
+
+- name: Display index status
+  debug:
+    msg: "Index '{{ opensearch_index }}' {{ 'already exists' if index_exists.status == 200 else 'does not exist' }}"
+
+- name: Create index with mappings
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/{{ opensearch_index }}"
+    method: PUT
+    body_format: json
+    body:
+      settings:
+        index:
+          number_of_shards: 1
+          number_of_replicas: 0
+          knn: true
+          knn.algo_param.ef_search: 100
+      mappings:
+        properties:
+          profileId:
+            type: keyword
+          companyDetails:
+            properties:
+              companyName:
+                type: text
+                fields:
+                  keyword:
+                    type: keyword
+              country:
+                type: keyword
+              city:
+                type: text
+                fields:
+                  keyword:
+                    type: keyword
+              numberOfEmployees:
+                type: integer
+              annualTurnover:
+                type: double
+              summaryOfActivity:
+                type: text
+          classification:
+            properties:
+              profileType:
+                type: keyword
+              marketSegment:
+                type: keyword
+              keywords:
+                type: keyword
+          semanticEmbedding:
+            type: knn_vector
+            dimension: 768
+            method:
+              name: "hnsw"
+              space_type: "cosinesimil"
+              engine: "nmslib"
+              parameters:
+                ef_construction: 128
+                m: 24
+          primaryContact:
+            properties:
+              name:
+                type: text
+              email:
+                type: keyword
+              phone:
+                type: keyword
+    status_code: [200, 400]
+  register: index_create
+  when: index_exists.status == 404
+
+- name: Display index creation result
+  debug:
+    msg: "Index {{ 'created' if index_create.status == 200 else 'already exists' }}"
+
+# ============================================================================
+# LOAD SAMPLE DATA (IF ENABLED)
+# ============================================================================
+- name: Check if sample data file exists
+  local_action:
+    module: stat
+    path: "{{ playbook_dir }}/../{{ sample_data_file }}"
+  register: sample_file
+  become: no
+  when: load_sample_data
+
+- name: Display sample data status
+  debug:
+    msg: "{{ 'Sample data file found' if sample_file.stat.exists else 'Sample data file not found' }}"
+  when: load_sample_data
+
+- name: Get current document count
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/{{ opensearch_index }}/_count"
+    method: GET
+    return_content: yes
+  register: doc_count
+  when: load_sample_data
+
+- name: Load sample data if index is empty
+  block:
+    - name: Read sample data file
+      slurp:
+        src: "{{ playbook_dir }}/../{{ sample_data_file }}"
+      register: sample_data
+      delegate_to: localhost
+      become: no
+
+    - name: Parse sample data
+      set_fact:
+        sample_docs: "{{ sample_data.content | b64decode | split('\n') | select() | list }}"
+
+    - name: Display sample data count
+      debug:
+        msg: "Found {{ sample_docs | length }} documents to load"
+
+    - name: Bulk index sample data (batch of 100)
+      uri:
+        url: "http://localhost:{{ opensearch_port }}/{{ opensearch_index }}/_bulk"
+        method: POST
+        body_format: json
+        body: "{{ sample_docs | batch(100) | first | join('\n') }}"
+        headers:
+          Content-Type: application/x-ndjson
+        status_code: [200]
+      register: bulk_load
+      when: sample_docs | length > 0
+
+    - name: Force refresh index
+      uri:
+        url: "http://localhost:{{ opensearch_port }}/{{ opensearch_index }}/_refresh"
+        method: POST
+        status_code: [200]
+
+    - name: Verify document count after loading
+      uri:
+        url: "http://localhost:{{ opensearch_port }}/{{ opensearch_index }}/_count"
+        method: GET
+        return_content: yes
+      register: new_doc_count
+
+    - name: Display document count
+      debug:
+        msg: "Index now has {{ new_doc_count.json.count }} documents"
+  when:
+    - load_sample_data
+    - sample_file.stat.exists
+    - doc_count.json.count | int == 0
+
+# ============================================================================
+# TEST KNN SEARCH
+# ============================================================================
+- name: Test KNN search functionality
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/{{ opensearch_index }}/_search"
+    method: GET
+    body_format: json
+    body:
+      size: 1
+      query:
+        match_all: {}
+    status_code: [200]
+    return_content: yes
+  register: search_test
+  when: not skip_health_check
+
+- name: Display OpenSearch initialization complete
+  debug:
+    msg:
+      - "OpenSearch initialization complete!"
+      - "Index: {{ opensearch_index }}"
+      - "Documents: {{ doc_count.json.count }}"
+      - "Status: {{ 'Ready' if search_test.status == 200 else 'Needs attention' }}"
+  when: not skip_health_check

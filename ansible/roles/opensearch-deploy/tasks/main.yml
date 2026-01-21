@@ -1,0 +1,170 @@
+---
+# OpenSearch Deployment Role
+# Deploys OpenSearch using Docker with proper configuration
+
+- name: Display OpenSearch deployment start
+  debug:
+    msg: "Starting OpenSearch deployment..."
+
+# ============================================================================
+# DETECT SYSTEM MEMORY FOR HEAP SIZE
+# ============================================================================
+- name: Get system memory
+  shell: free -m | grep Mem | awk '{print $2}'
+  register: total_memory_mb
+  changed_when: false
+
+- name: Calculate OpenSearch heap size
+  set_fact:
+    calculated_heap_size: "{{ (total_memory_mb.stdout | int / 2) | int }}m"
+  when: opensearch_heap_size == "2g"
+
+- name: Use calculated heap size
+  set_fact:
+    opensearch_heap_size_final: "{{ calculated_heap_size }}"
+  when: opensearch_heap_size == "2g"
+
+- name: Use configured heap size
+  set_fact:
+    opensearch_heap_size_final: "{{ opensearch_heap_size }}"
+  when: opensearch_heap_size != "2g"
+
+- name: Display calculated heap size
+  debug:
+    msg: "System memory: {{ total_memory_mb.stdout }}MB, Heap size: {{ opensearch_heap_size_final }}"
+
+# ============================================================================
+# CREATE OPENSEARCH DIRECTORIES
+# ============================================================================
+- name: Create OpenSearch data directory
+  file:
+    path: "{{ opensearch_data_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Create OpenSearch logs directory
+  file:
+    path: /var/log/opensearch
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+# ============================================================================
+# PULL OPENSEARCH IMAGE
+# ============================================================================
+- name: Pull OpenSearch Docker image
+  docker_image:
+    name: "{{ opensearch_image }}"
+    source: pull
+    state: present
+  register: opensearch_pull
+  until: opensearch_pull is succeeded
+  retries: 3
+  delay: 5
+
+# ============================================================================
+# CREATE OPENSEARCH NETWORK
+# ============================================================================
+- name: Create OpenSearch Docker network
+  docker_network:
+    name: "{{ opensearch_network }}"
+    state: present
+    driver: bridge
+
+# ============================================================================
+# DEPLOY OPENSEARCH CONTAINER
+# ============================================================================
+- name: Check if OpenSearch container exists
+  shell: docker ps -a --filter "name={{ opensearch_container_name }}" --format "{{ '{{.Names}}' }}"
+  register: opensearch_container_exists
+  changed_when: false
+  failed_when: false
+
+- name: Remove existing OpenSearch container
+  docker_container:
+    name: "{{ opensearch_container_name }}"
+    state: absent
+    force_kill: yes
+  when: opensearch_container_exists.stdout == opensearch_container_name
+
+- name: Deploy OpenSearch container
+  docker_container:
+    name: "{{ opensearch_container_name }}"
+    image: "{{ opensearch_image }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ opensearch_port }}:9200"
+      - "9600:9600"  # Performance analyzer
+    volumes:
+      - "{{ opensearch_data_dir }}:/usr/share/opensearch/data"
+      - "/var/log/opensearch:/usr/share/opensearch/logs"
+    env:
+      cluster.name: "{{ opensearch_cluster_name }}"
+      node.name: "{{ opensearch_node_name }}"
+      discovery.type: single-node
+      bootstrap.memory_lock: "false"
+      "OPENSEARCH_JAVA_OPTS": "-Xms{{ opensearch_heap_size_final }} -Xmx{{ opensearch_heap_size_final }}"
+      "DISABLE_INSTALL_DEMO_CONFIG": "true"
+      "DISABLE_SECURITY_PLUGIN": "{{ opensearch_disable_security }}"
+      "plugins.security.ssl.http.enabled": "false"
+      "plugins.security.allow_unsafe_democertificates": "true"
+    networks:
+      - name: "{{ opensearch_network }}"
+    networks_cli_compatible: yes
+    comparisons:
+      env: strict
+  register: opensearch_deploy
+
+# ============================================================================
+# WAIT FOR OPENSEARCH TO BE READY
+# ============================================================================
+- name: Wait for OpenSearch to start
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/_cluster/health"
+    method: GET
+    return_content: yes
+    status_code: [200, 503]
+  register: opensearch_health
+  until: opensearch_health.status == 200
+  retries: 60
+  delay: 5
+  changed_when: false
+
+- name: Get OpenSearch cluster health
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/_cluster/health?pretty"
+    method: GET
+    return_content: yes
+  register: opensearch_cluster_status
+  changed_when: false
+
+- name: Display OpenSearch status
+  debug:
+    msg: "{{ opensearch_cluster_status.json | to_nice_json }}"
+
+# ============================================================================
+# VERIFY OPENSEARCH IS RUNNING
+# ============================================================================
+- name: Check OpenSearch container status
+  shell: docker ps --filter "name={{ opensearch_container_name }}" --format "{{ '{{.Status}}' }}"
+  register: opensearch_container_status
+  changed_when: false
+
+- name: Verify OpenSearch is accessible
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/"
+    method: GET
+    return_content: yes
+  register: opensearch_info
+  changed_when: false
+
+- name: Display OpenSearch info
+  debug:
+    msg:
+      - "OpenSearch container status: {{ opensearch_container_status.stdout }}"
+      - "OpenSearch version: {{ opensearch_info.json.version.number }}"
+      - "OpenSearch available at: http://localhost:{{ opensearch_port }}"

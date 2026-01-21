@@ -5,7 +5,7 @@
  * with fallback to semantic similarity for unknown categories.
  */
 
-import embeddingService from './embedding.service';
+import geminiEmbeddingService from './gemini-embedding.service';
 
 interface SimilarityScore {
   score: number;
@@ -203,8 +203,8 @@ class CategoricalService {
     try {
       // Get embeddings for both values
       const [embedding1, embedding2] = await Promise.all([
-        embeddingService.embed(value1),
-        embeddingService.embed(value2),
+        geminiEmbeddingService.embed(value1),
+        geminiEmbeddingService.embed(value2),
       ]);
 
       // Calculate cosine similarity

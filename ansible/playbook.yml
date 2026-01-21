@@ -1,0 +1,107 @@
+---
+# Matching Engine Deployment Playbook
+# Deploys the complete matching-engine application with OpenSearch on a single VPS
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbook.yml
+#
+# With custom variables:
+#   ansible-playbook -i inventory/hosts.yml playbook.yml \
+#     --extra-vars "anthropic_api_key=sk-ant-xxx gemini_api_key=xxx notion_api_key=xxx"
+
+- name: Deploy Matching Engine Application
+  hosts: matching_engine
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Set default values that can be overridden
+    app_name: "matching-engine"
+    deployment_user: "deploy"
+    deploy_path: "/opt/matching-engine"
+
+    # Detect server IP for API URL
+    server_ip: "{{ ansible_default_ipv4.address | default(ansible_host) }}"
+
+  pre_tasks:
+    - name: Display deployment information
+      debug:
+        msg:
+          - "=========================================="
+          - "  Matching Engine Deployment"
+          - "=========================================="
+          - "Target: {{ inventory_hostname }}"
+          - "IP Address: {{ server_ip }}"
+          - "Deploy Path: {{ deploy_path }}"
+          - "OpenSearch: localhost:{{ opensearch_port }}"
+          - "=========================================="
+
+    - name: Check if required variables are set
+      fail:
+        msg: "Required variable {{ item }} is not set. Please provide it via --extra-vars"
+      when: vars[item] is undefined or vars[item] == "" or vars[item].startswith("YOUR_KEY")
+      loop:
+        - anthropic_api_key
+        - gemini_api_key
+        - notion_api_key
+      tags: always
+
+  roles:
+    # Phase 1: System Setup
+    - role: system-setup
+      tags:
+        - setup
+        - system
+
+    # Phase 2: OpenSearch Deployment
+    - role: opensearch-deploy
+      tags:
+        - setup
+        - opensearch
+
+    # Phase 3: Network Configuration
+    - role: network-config
+      tags:
+        - setup
+        - network
+
+    # Phase 4: Application Deployment
+    - role: app-deploy
+      tags:
+        - deploy
+        - app
+
+    # Phase 5: OpenSearch Initialization
+    - role: opensearch-init
+      tags:
+        - init
+        - opensearch
+
+    # Phase 6: Health Check
+    - role: health-check
+      tags:
+        - check
+        - health
+
+  post_tasks:
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "=========================================="
+          - "  Deployment Complete!"
+          - "=========================================="
+          - ""
+          - "Frontend URL: http://{{ server_ip }}:3002"
+          - "Backend API:  http://{{ server_ip }}:3001"
+          - ""
+          - "Check service status:"
+          - "  docker ps"
+          - ""
+          - "View logs:"
+          - "  docker logs -f matching-engine-backend"
+          - "  docker logs -f matching-engine-frontend"
+          - ""
+          - "To uninstall, run:"
+          - "  ansible-playbook -i inventory/hosts.yml uninstall.yml"
+          - "=========================================="
+      tags: always

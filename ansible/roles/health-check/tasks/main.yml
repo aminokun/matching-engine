@@ -1,0 +1,147 @@
+---
+# Health Check Role
+# Verifies all services are running and accessible
+
+- name: Display health check start
+  debug:
+    msg: "Running health checks..."
+
+# ============================================================================
+# CHECK OPENSEARCH
+# ============================================================================
+- name: Check OpenSearch health
+  uri:
+    url: "http://localhost:{{ opensearch_port }}/_cluster/health"
+    method: GET
+    return_content: yes
+  register: opensearch_health
+  until: opensearch_health.status == 200
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+
+- name: Check OpenSearch container
+  shell: docker ps --filter "name={{ opensearch_container_name }}" --format "{{ '{{.Status}}' }}"
+  register: opensearch_container_status
+  changed_when: false
+
+- name: Display OpenSearch status
+  debug:
+    msg:
+      - "OpenSearch: {{ opensearch_container_status.stdout }}"
+      - "Cluster status: {{ opensearch_health.json.status | default('unknown') }}"
+
+# ============================================================================
+# CHECK BACKEND
+# ============================================================================
+- name: Check backend health endpoint
+  uri:
+    url: "http://localhost:{{ backend_port }}/api/search/health"
+    method: GET
+    status_code: [200, 404]
+  register: backend_health
+  until: backend_health.status in [200, 404]
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+
+- name: Check backend container
+  shell: docker ps --filter "name={{ backend_container_name }}" --format "{{ '{{.Status}}' }}"
+  register: backend_container_status
+  changed_when: false
+
+- name: Display backend status
+  debug:
+    msg:
+      - "Backend: {{ backend_container_status.stdout }}"
+      - "Health check: {{ 'Passed' if backend_health.status == 200 else 'Warning' }}"
+
+# ============================================================================
+# CHECK FRONTEND
+# ============================================================================
+- name: Check frontend accessibility
+  uri:
+    url: "http://localhost:{{ frontend_port }}/"
+    method: GET
+    status_code: [200, 404]
+  register: frontend_health
+  until: frontend_health.status in [200, 404]
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+
+- name: Check frontend container
+  shell: docker ps --filter "name={{ frontend_container_name }}" --format "{{ '{{.Status}}' }}"
+  register: frontend_container_status
+  changed_when: false
+
+- name: Display frontend status
+  debug:
+    msg:
+      - "Frontend: {{ frontend_container_status.stdout }}"
+      - "Accessibility: {{ 'OK' if frontend_health.status == 200 else 'Warning' }}"
+
+# ============================================================================
+# CHECK NETWORK CONNECTIVITY
+# ============================================================================
+- name: Check all containers are on same network
+  shell: docker network inspect {{ docker_network }} --format '{{ '{{range .Containers}}{{.Name}} {{end}}' }}'
+  register: network_containers
+  changed_when: false
+
+- name: Display network status
+  debug:
+    msg: "Containers on {{ docker_network }}: {{ network_containers.stdout }}"
+
+# ============================================================================
+# GATHER SERVICE STATISTICS
+# ============================================================================
+- name: Get container resource usage
+  shell: docker stats --no-stream --format "table {{ '{{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}' }}" {{ opensearch_container_name }} {{ backend_container_name }} {{ frontend_container_name }}
+  register: container_stats
+  changed_when: false
+
+- name: Display container statistics
+  debug:
+    msg: "{{ container_stats.stdout }}"
+
+# ============================================================================
+# FINAL HEALTH SUMMARY
+# ============================================================================
+- name: Create health summary
+  set_fact:
+    health_summary:
+      opensearch:
+        status: "{{ 'Healthy' if opensearch_health.json.status == 'green' or opensearch_health.json.status == 'yellow' else 'Warning' }}"
+        cluster_status: "{{ opensearch_health.json.status | default('unknown') }}"
+      backend:
+        status: "{{ 'Running' if backend_container_status.stdout != '' else 'Stopped' }}"
+        health_check: "{{ 'Passed' if backend_health.status == 200 else 'Warning' }}"
+      frontend:
+        status: "{{ 'Running' if frontend_container_status.stdout != '' else 'Stopped' }}"
+        accessibility: "{{ 'OK' if frontend_health.status == 200 else 'Warning' }}"
+
+- name: Display final health summary
+  debug:
+    msg:
+      - "=========================================="
+      - "  Health Check Summary"
+      - "=========================================="
+      - "OpenSearch: {{ health_summary.opensearch.status }} ({{ health_summary.opensearch.cluster_status }})"
+      - "Backend: {{ health_summary.backend.status }} ({{ health_summary.backend.health_check }})"
+      - "Frontend: {{ health_summary.frontend.status }} ({{ health_summary.frontend.accessibility }})"
+      - "=========================================="
+
+# ============================================================================
+# DISPLAY ACCESS INFORMATION
+# ============================================================================
+- name: Display access URLs
+  debug:
+    msg:
+      - ""
+      - "=========================================="
+      - "  Application Access"
+      - "=========================================="
+      - ""
+      - "Frontend: http://{{ server_ip }}:{{ frontend_port }}"
+      - "Backend API: http://{{ server_ip }}:{{ backend_port }}"
+      - "OpenSearch: http://{{ server_ip }}:{{ opensearch_port }}"
+      - ""
+      - "=========================================="

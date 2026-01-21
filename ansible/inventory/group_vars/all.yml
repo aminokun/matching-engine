@@ -1,0 +1,110 @@
+---
+# Matching Engine - Global Variables
+# These variables apply to all hosts in the inventory
+
+# ============================================================================
+# APPLICATION CONFIGURATION
+# ============================================================================
+app_name: "matching-engine"
+app_domain: "{{ ansible_default_ipv4.address | default('localhost') }}"
+
+# ============================================================================
+# API KEYS (REQUIRED - Provide via --extra-vars or ansible-vault)
+# ============================================================================
+# For security, use ansible-vault to encrypt these:
+#   ansible-vault encrypt_string 'sk-ant-xxx' --name 'anthropic_api_key'
+anthropic_api_key: "YOUR_KEY_HERE"
+gemini_api_key: "YOUR_KEY_HERE"
+notion_api_key: "YOUR_KEY_HERE"
+
+# ============================================================================
+# OPENSEARCH CONFIGURATION (Single-Server Deployment)
+# ============================================================================
+opensearch_host: "localhost"
+opensearch_port: 9200
+opensearch_index: "dutch-companies-vector-index"
+opensearch_version: "2.15.0"
+opensearch_image: "opensearchproject/opensearch:{{ opensearch_version }}"
+opensearch_data_dir: "/opt/opensearch/data"
+opensearch_heap_size: "2g"  # Will be auto-detected if possible
+
+# OpenSearch Docker Configuration
+opensearch_container_name: "opensearch"
+opensearch_network: "opensearch-net"
+
+# Disables security for internal/development use
+opensearch_disable_security: "true"
+
+# Cluster settings (single-node mode)
+opensearch_cluster_name: "matching-engine-cluster"
+opensearch_node_name: "matching-engine-node"
+
+# ============================================================================
+# DEPLOYMENT SETTINGS
+# ============================================================================
+deployment_user: "root"  # Use 'root' or a user with sudo privileges
+deploy_path: "/opt/matching-engine"
+git_branch: "main"
+git_repo: ""  # Leave empty to skip git clone and use local deployment
+
+# Auto-detected server IP for frontend API URL
+server_ip: "{{ ansible_default_ipv4.address | default('localhost') }}"
+api_url: "http://{{ server_ip }}:3001"
+
+# ============================================================================
+# DOCKER CONFIGURATION
+# ============================================================================
+docker_compose_version: "2.24.0"
+docker_network: "matching-engine-network"
+
+# Backend Container
+backend_container_name: "matching-engine-backend"
+backend_image_name: "matching-engine-backend"
+backend_port: 3001
+
+# Frontend Container
+frontend_container_name: "matching-engine-frontend"
+frontend_image_name: "matching-engine-frontend"
+frontend_port: 3002
+
+# ============================================================================
+# FIREWALL SETTINGS
+# ============================================================================
+enable_firewall: true
+firewalld_enabled: false  # Set to true for RHEL/CentOS/Rocky
+ufw_enabled: true         # Set to true for Debian/Ubuntu
+
+allowed_ports:
+  - 22    # SSH
+  - 80    # HTTP
+  - 443   # HTTPS
+  - 3001  # Backend API
+  - 3002  # Frontend
+  - 9200  # OpenSearch (optional, can be closed for external access)
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+logs_dir: "{{ deploy_path }}/logs"
+log_rotation_enabled: true
+log_rotation_days: 7
+
+# ============================================================================
+# HEALTH CHECK SETTINGS
+# ============================================================================
+health_check_timeout: 300  # seconds
+health_check_retries: 30
+health_check_delay: 10     # seconds between retries
+
+# ============================================================================
+# SAMPLE DATA
+# ============================================================================
+load_sample_data: true
+sample_data_file: "elasticsearch/sample-data.ndjson"
+
+# ============================================================================
+# DEVELOPMENT/DEBUG OPTIONS
+# ============================================================================
+verbose_output: false
+skip_health_check: false
+restart_services: true
