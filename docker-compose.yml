@@ -18,6 +18,7 @@ services:
       - "3001:3001"
     networks:
       - matching-engine-network
+      - opensearch-net
     restart: unless-stopped
 
   frontend:
@@ -39,3 +40,6 @@ services:
 networks:
   matching-engine-network:
     driver: bridge
+  opensearch-net:
+    external: true
+    name: opensearch_opensearch-net
